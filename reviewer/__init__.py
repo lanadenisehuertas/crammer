@@ -1,0 +1,1 @@
+"""Local study reviewer app."""
