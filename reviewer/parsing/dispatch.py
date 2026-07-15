@@ -1,12 +1,11 @@
 from reviewer.parsing.base import (
-    EmptyContentError, OcrFn, ParsedContent, UnsupportedFileType, media_type_for,
+    EmptyContentError, IMAGE_EXTENSIONS, OcrFn, ParsedContent, UnsupportedFileType,
+    ext_of, media_type_for,
 )
 from reviewer.parsing import (
     text_reader, spreadsheet_reader, web_reader, image_reader,
     pdf_reader, docx_reader, pptx_reader,
 )
-
-_IMAGE_EXTS = {"png", "jpg", "jpeg", "gif", "webp"}
 
 
 def parse_text(text: str) -> ParsedContent:
@@ -16,7 +15,7 @@ def parse_text(text: str) -> ParsedContent:
 
 
 def parse_file(filename: str, data: bytes, ocr: OcrFn) -> ParsedContent:
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    ext = ext_of(filename)
 
     if ext in {"txt", "md", "markdown"}:
         pc = text_reader.read_plain(data)
@@ -30,7 +29,7 @@ def parse_file(filename: str, data: bytes, ocr: OcrFn) -> ParsedContent:
         pc = web_reader.read_html(data)
     elif ext == "epub":
         pc = web_reader.read_epub(data)
-    elif ext in _IMAGE_EXTS:
+    elif ext in IMAGE_EXTENSIONS:
         pc = image_reader.read_image(data, media_type_for(filename), ocr)
     elif ext == "pdf":
         pc = pdf_reader.read_pdf(data, ocr)

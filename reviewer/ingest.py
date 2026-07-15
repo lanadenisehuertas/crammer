@@ -4,7 +4,7 @@ from datetime import datetime
 from reviewer import repository as repo
 from reviewer.models import Document
 from reviewer.parsing import ParsedContent, parse_file, parse_text
-from reviewer.parsing.base import OcrFn
+from reviewer.parsing.base import OcrFn, ext_of
 
 
 def _now() -> str:
@@ -22,7 +22,7 @@ def ingest_text(conn: sqlite3.Connection, title: str, text: str) -> tuple[Docume
 def ingest_file(conn: sqlite3.Connection, filename: str, data: bytes,
                 ocr: OcrFn) -> tuple[Document, ParsedContent]:
     pc = parse_file(filename, data, ocr)
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "file"
+    ext = ext_of(filename, "file")
     doc = repo.create_document(conn, Document(
         id=None, title=filename, source_type=ext,
         created_at=_now(), extracted_text=pc.text))
