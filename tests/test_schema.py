@@ -1,5 +1,6 @@
 import sqlite3
 from reviewer.db import connect
+from reviewer.schema import init_db
 
 
 def test_connect_in_memory_returns_connection():
@@ -23,9 +24,6 @@ def test_connect_rows_are_accessible_by_name():
     assert row["a"] == 1
     assert row["b"] == "x"
     conn.close()
-
-
-from reviewer.schema import init_db
 
 
 def test_init_db_creates_all_tables():

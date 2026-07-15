@@ -1,7 +1,7 @@
 import sqlite3
 from typing import Optional
 
-from reviewer.models import Document
+from reviewer.models import Document, Module, ModuleSection, Card, Review
 
 
 def _row_to_document(row: sqlite3.Row) -> Document:
@@ -51,9 +51,6 @@ def set_cheat_sheet(conn: sqlite3.Connection, doc_id: int, cheat_sheet: str) -> 
     conn.commit()
 
 
-from reviewer.models import Module, ModuleSection
-
-
 def _row_to_module(row: sqlite3.Row) -> Module:
     return Module(id=row["id"], document_id=row["document_id"],
                   title=row["title"], position=row["position"])
@@ -101,9 +98,6 @@ def list_sections(conn: sqlite3.Connection, module_id: int) -> list[ModuleSectio
         (module_id,),
     ).fetchall()
     return [_row_to_section(r) for r in rows]
-
-
-from reviewer.models import Card
 
 
 def _row_to_card(row: sqlite3.Row) -> Card:
@@ -159,9 +153,6 @@ def update_card_schedule(conn: sqlite3.Connection, card_id: int, *, due_at: str,
         (due_at, interval_minutes, ease_factor, review_count, card_id),
     )
     conn.commit()
-
-
-from reviewer.models import Review
 
 
 def _row_to_review(row: sqlite3.Row) -> Review:

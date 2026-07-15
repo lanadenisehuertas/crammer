@@ -1,5 +1,5 @@
 from reviewer import repository as repo
-from reviewer.models import Document
+from reviewer.models import Document, Module, ModuleSection, Card, Review
 
 
 def test_create_and_get_document(conn):
@@ -38,9 +38,6 @@ def test_set_cheat_sheet(conn):
     assert repo.get_document(conn, d.id).cheat_sheet == "TL;DR: cells."
 
 
-from reviewer.models import Module, ModuleSection
-
-
 def _doc(conn):
     return repo.create_document(conn, Document(None, "D", "text", "2026-07-16T09:00:00", "x"))
 
@@ -62,9 +59,6 @@ def test_add_and_list_sections_with_origin(conn):
     secs = repo.list_sections(conn, m.id)
     assert [s.origin for s in secs] == ["from-file", "added-context"]
     assert secs[0].heading == "Def"
-
-
-from reviewer.models import Card
 
 
 def test_create_and_list_cards_for_module(conn):
@@ -101,9 +95,6 @@ def test_list_cards_for_document(conn):
     repo.create_card(conn, Card(None, d.id, m2.id, "flashcard", "Q2", "A2",
                                 due_at="2026-07-16T10:00:00", created_at="2026-07-16T09:00:00"))
     assert len(repo.list_cards_for_document(conn, d.id)) == 2
-
-
-from reviewer.models import Review
 
 
 def test_log_review_and_list_for_card(conn):
