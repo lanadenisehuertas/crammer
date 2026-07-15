@@ -32,7 +32,10 @@ def read_csv(data: bytes) -> ParsedContent:
 def read_xlsx(data: bytes) -> ParsedContent:
     wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     rows: list[list[str]] = []
-    for ws in wb.worksheets:
-        for row in ws.iter_rows(values_only=True):
-            rows.append(["" if v is None else str(v) for v in row])
+    try:
+        for ws in wb.worksheets:
+            for row in ws.iter_rows(values_only=True):
+                rows.append(["" if v is None else str(v) for v in row])
+    finally:
+        wb.close()
     return _rows_to_content(rows)
