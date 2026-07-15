@@ -62,3 +62,42 @@ def test_add_and_list_sections_with_origin(conn):
     secs = repo.list_sections(conn, m.id)
     assert [s.origin for s in secs] == ["from-file", "added-context"]
     assert secs[0].heading == "Def"
+
+
+from reviewer.models import Card
+
+
+def test_create_and_list_cards_for_module(conn):
+    d = _doc(conn)
+    m = repo.create_module(conn, Module(None, d.id, "M", 0))
+    repo.create_card(conn, Card(None, d.id, m.id, "flashcard", "Q1", "A1",
+                                due_at="2026-07-16T10:00:00", created_at="2026-07-16T09:00:00"))
+    repo.create_card(conn, Card(None, d.id, m.id, "short-answer", "Q2", "A2",
+                                due_at="2026-07-16T10:00:00", created_at="2026-07-16T09:00:00"))
+    cards = repo.list_cards_for_module(conn, m.id)
+    assert {c.question for c in cards} == {"Q1", "Q2"}
+    assert cards[0].ease_factor == 2.5
+
+
+def test_update_card_schedule(conn):
+    d = _doc(conn)
+    m = repo.create_module(conn, Module(None, d.id, "M", 0))
+    c = repo.create_card(conn, Card(None, d.id, m.id, "flashcard", "Q", "A",
+                                    due_at="2026-07-16T10:00:00", created_at="2026-07-16T09:00:00"))
+    repo.update_card_schedule(conn, c.id, due_at="2026-07-16T14:00:00",
+                              interval_minutes=240, ease_factor=2.6, review_count=1)
+    updated = repo.get_card(conn, c.id)
+    assert updated.due_at == "2026-07-16T14:00:00"
+    assert updated.interval_minutes == 240
+    assert updated.review_count == 1
+
+
+def test_list_cards_for_document(conn):
+    d = _doc(conn)
+    m1 = repo.create_module(conn, Module(None, d.id, "M1", 0))
+    m2 = repo.create_module(conn, Module(None, d.id, "M2", 1))
+    repo.create_card(conn, Card(None, d.id, m1.id, "flashcard", "Q1", "A1",
+                                due_at="2026-07-16T10:00:00", created_at="2026-07-16T09:00:00"))
+    repo.create_card(conn, Card(None, d.id, m2.id, "flashcard", "Q2", "A2",
+                                due_at="2026-07-16T10:00:00", created_at="2026-07-16T09:00:00"))
+    assert len(repo.list_cards_for_document(conn, d.id)) == 2

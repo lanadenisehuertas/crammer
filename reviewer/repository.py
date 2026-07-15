@@ -101,3 +101,61 @@ def list_sections(conn: sqlite3.Connection, module_id: int) -> list[ModuleSectio
         (module_id,),
     ).fetchall()
     return [_row_to_section(r) for r in rows]
+
+
+from reviewer.models import Card
+
+
+def _row_to_card(row: sqlite3.Row) -> Card:
+    return Card(
+        id=row["id"], document_id=row["document_id"], module_id=row["module_id"],
+        card_type=row["card_type"], question=row["question"], answer=row["answer"],
+        due_at=row["due_at"], interval_minutes=row["interval_minutes"],
+        ease_factor=row["ease_factor"], review_count=row["review_count"],
+        created_at=row["created_at"],
+    )
+
+
+def create_card(conn: sqlite3.Connection, card: Card) -> Card:
+    cur = conn.execute(
+        """INSERT INTO cards
+           (document_id, module_id, card_type, question, answer, due_at,
+            interval_minutes, ease_factor, review_count, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (card.document_id, card.module_id, card.card_type, card.question, card.answer,
+         card.due_at, card.interval_minutes, card.ease_factor, card.review_count,
+         card.created_at),
+    )
+    conn.commit()
+    card.id = cur.lastrowid
+    return card
+
+
+def get_card(conn: sqlite3.Connection, card_id: int) -> Optional[Card]:
+    row = conn.execute("SELECT * FROM cards WHERE id = ?", (card_id,)).fetchone()
+    return _row_to_card(row) if row else None
+
+
+def list_cards_for_module(conn: sqlite3.Connection, module_id: int) -> list[Card]:
+    rows = conn.execute(
+        "SELECT * FROM cards WHERE module_id = ? ORDER BY id", (module_id,)
+    ).fetchall()
+    return [_row_to_card(r) for r in rows]
+
+
+def list_cards_for_document(conn: sqlite3.Connection, document_id: int) -> list[Card]:
+    rows = conn.execute(
+        "SELECT * FROM cards WHERE document_id = ? ORDER BY id", (document_id,)
+    ).fetchall()
+    return [_row_to_card(r) for r in rows]
+
+
+def update_card_schedule(conn: sqlite3.Connection, card_id: int, *, due_at: str,
+                         interval_minutes: int, ease_factor: float,
+                         review_count: int) -> None:
+    conn.execute(
+        """UPDATE cards SET due_at = ?, interval_minutes = ?, ease_factor = ?,
+           review_count = ? WHERE id = ?""",
+        (due_at, interval_minutes, ease_factor, review_count, card_id),
+    )
+    conn.commit()
