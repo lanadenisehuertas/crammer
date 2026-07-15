@@ -101,3 +101,25 @@ def test_list_cards_for_document(conn):
     repo.create_card(conn, Card(None, d.id, m2.id, "flashcard", "Q2", "A2",
                                 due_at="2026-07-16T10:00:00", created_at="2026-07-16T09:00:00"))
     assert len(repo.list_cards_for_document(conn, d.id)) == 2
+
+
+from reviewer.models import Review
+
+
+def test_log_review_and_list_for_card(conn):
+    d = _doc(conn)
+    m = repo.create_module(conn, Module(None, d.id, "M", 0))
+    c = repo.create_card(conn, Card(None, d.id, m.id, "flashcard", "Q", "A",
+                                    due_at="2026-07-16T10:00:00", created_at="2026-07-16T09:00:00"))
+    repo.log_review(conn, Review(None, c.id, "2026-07-16T10:05:00", "good"))
+    repo.log_review(conn, Review(None, c.id, "2026-07-16T12:05:00", "again"))
+    reviews = repo.list_reviews_for_card(conn, c.id)
+    assert [r.rating for r in reviews] == ["good", "again"]
+
+
+def test_record_study_day_is_unique(conn):
+    repo.record_study_day(conn, "2026-07-16")
+    repo.record_study_day(conn, "2026-07-16")  # duplicate must not raise
+    repo.record_study_day(conn, "2026-07-15")
+    days = repo.list_study_days(conn)
+    assert days == ["2026-07-15", "2026-07-16"]

@@ -159,3 +159,38 @@ def update_card_schedule(conn: sqlite3.Connection, card_id: int, *, due_at: str,
         (due_at, interval_minutes, ease_factor, review_count, card_id),
     )
     conn.commit()
+
+
+from reviewer.models import Review
+
+
+def _row_to_review(row: sqlite3.Row) -> Review:
+    return Review(id=row["id"], card_id=row["card_id"],
+                  rated_at=row["rated_at"], rating=row["rating"])
+
+
+def log_review(conn: sqlite3.Connection, review: Review) -> Review:
+    cur = conn.execute(
+        "INSERT INTO reviews (card_id, rated_at, rating) VALUES (?, ?, ?)",
+        (review.card_id, review.rated_at, review.rating),
+    )
+    conn.commit()
+    review.id = cur.lastrowid
+    return review
+
+
+def list_reviews_for_card(conn: sqlite3.Connection, card_id: int) -> list[Review]:
+    rows = conn.execute(
+        "SELECT * FROM reviews WHERE card_id = ? ORDER BY rated_at, id", (card_id,)
+    ).fetchall()
+    return [_row_to_review(r) for r in rows]
+
+
+def record_study_day(conn: sqlite3.Connection, day: str) -> None:
+    conn.execute("INSERT OR IGNORE INTO study_days (day) VALUES (?)", (day,))
+    conn.commit()
+
+
+def list_study_days(conn: sqlite3.Connection) -> list[str]:
+    rows = conn.execute("SELECT day FROM study_days ORDER BY day").fetchall()
+    return [r["day"] for r in rows]
