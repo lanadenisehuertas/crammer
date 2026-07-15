@@ -36,3 +36,29 @@ def test_set_cheat_sheet(conn):
     d = repo.create_document(conn, Document(None, "A", "text", "2026-07-16T09:00:00", "a"))
     repo.set_cheat_sheet(conn, d.id, "TL;DR: cells.")
     assert repo.get_document(conn, d.id).cheat_sheet == "TL;DR: cells."
+
+
+from reviewer.models import Module, ModuleSection
+
+
+def _doc(conn):
+    return repo.create_document(conn, Document(None, "D", "text", "2026-07-16T09:00:00", "x"))
+
+
+def test_create_and_list_modules_in_position_order(conn):
+    d = _doc(conn)
+    m2 = repo.create_module(conn, Module(None, d.id, "Second", 1))
+    m1 = repo.create_module(conn, Module(None, d.id, "First", 0))
+    mods = repo.list_modules(conn, d.id)
+    assert [m.title for m in mods] == ["First", "Second"]
+    assert m1.id is not None and m2.id is not None
+
+
+def test_add_and_list_sections_with_origin(conn):
+    d = _doc(conn)
+    m = repo.create_module(conn, Module(None, d.id, "M", 0))
+    repo.add_section(conn, ModuleSection(None, m.id, "Def", "A cell is...", "from-file", 0))
+    repo.add_section(conn, ModuleSection(None, m.id, "Extra", "Related...", "added-context", 1))
+    secs = repo.list_sections(conn, m.id)
+    assert [s.origin for s in secs] == ["from-file", "added-context"]
+    assert secs[0].heading == "Def"
