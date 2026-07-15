@@ -21,3 +21,12 @@ def test_read_pdf_appends_ocr_for_embedded_images(monkeypatch):
     calls = []
     read_pdf(_make_pdf("Some text"), ocr=lambda b, m: calls.append(1) or "X")
     assert calls == []
+
+
+def test_read_pdf_swallows_ocr_failure_and_keeps_text():
+    # A failing OCR on an embedded image must not abort extraction of page text.
+    def boom(b, m):
+        raise RuntimeError("ocr down")
+
+    pc = read_pdf(_make_pdf("Cell biology notes"), ocr=boom)
+    assert "Cell biology notes" in pc.text

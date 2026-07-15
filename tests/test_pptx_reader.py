@@ -28,3 +28,13 @@ def test_read_pptx_extracts_text_notes_and_image_ocr():
     assert "Slide Title" in pc.text
     assert "Speaker note here" in pc.text
     assert "SLIDE_IMAGE_TEXT" in pc.text
+
+
+def test_read_pptx_swallows_ocr_failure_and_keeps_text():
+    # A failing OCR on a slide picture must not abort extraction of the rest.
+    def boom(b, m):
+        raise RuntimeError("ocr down")
+
+    pc = read_pptx(_make_pptx(), ocr=boom)
+    assert "Slide Title" in pc.text
+    assert "Speaker note here" in pc.text

@@ -27,6 +27,7 @@ def read_pdf(data: bytes, ocr: OcrFn) -> ParsedContent:
             try:
                 transcription = ocr(image.data, _image_media_type(image.name or ""))
             except Exception:
+                # One bad embedded image shouldn't abort extraction of the rest.
                 transcription = ""
             if transcription.strip():
                 parts.append(transcription.strip())

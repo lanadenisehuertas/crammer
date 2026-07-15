@@ -19,6 +19,7 @@ def _shape_text(shape, ocr: OcrFn, parts: list[str]) -> None:
             image = shape.image
             transcription = ocr(image.blob, image.content_type)
         except Exception:
+            # One bad embedded image shouldn't abort extraction of the rest.
             transcription = ""
         if transcription.strip():
             parts.append(transcription.strip())

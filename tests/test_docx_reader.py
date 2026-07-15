@@ -27,3 +27,13 @@ def test_read_docx_extracts_paragraphs_tables_and_image_ocr():
     assert "Intro paragraph." in pc.text
     assert "Cell A" in pc.text and "Cell B" in pc.text
     assert "IMAGE_TEXT" in pc.text
+
+
+def test_read_docx_swallows_ocr_failure_and_keeps_text():
+    # A failing OCR on an embedded image must not abort extraction of the rest.
+    def boom(b, m):
+        raise RuntimeError("ocr down")
+
+    pc = read_docx(_make_docx(), ocr=boom)
+    assert "Intro paragraph." in pc.text
+    assert "Cell A" in pc.text and "Cell B" in pc.text

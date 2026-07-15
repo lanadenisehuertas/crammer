@@ -26,6 +26,7 @@ def read_docx(data: bytes, ocr: OcrFn) -> ParsedContent:
                 media_type = rel.target_part.content_type
                 transcription = ocr(blob, media_type)
             except Exception:
+                # One bad embedded image shouldn't abort extraction of the rest.
                 transcription = ""
             if transcription.strip():
                 parts.append(transcription.strip())
