@@ -42,3 +42,17 @@ def test_ocr_image_returns_text_and_sends_image_block():
     # image bytes must be base64-encoded
     assert image_block["source"]["data"] == base64.standard_b64encode(
         b"\x89PNG-bytes").decode("utf-8")
+
+
+def test_generate_text_sends_system_and_user_and_returns_text():
+    recorder = {}
+    client = ClaudeClient(api_key="sk-ant-test", model="claude-opus-4-7",
+                          sdk=_FakeAnthropic(recorder))
+    # _FakeMessages.create returns "TRANSCRIBED TEXT"; reuse it as the model reply.
+    out = client.generate_text(system="SYS", user="USER", max_tokens=1234)
+    assert out == "TRANSCRIBED TEXT"
+    kwargs = recorder["kwargs"]
+    assert kwargs["model"] == "claude-opus-4-7"
+    assert kwargs["system"] == "SYS"
+    assert kwargs["max_tokens"] == 1234
+    assert kwargs["messages"] == [{"role": "user", "content": "USER"}]

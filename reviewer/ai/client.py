@@ -33,3 +33,13 @@ class ClaudeClient:
             }],
         )
         return "".join(b.text for b in message.content if b.type == "text").strip()
+
+    def generate_text(self, system: str, user: str, max_tokens: int = 16000) -> str:
+        """Return Claude's text response to a system + user prompt."""
+        message = self._client.messages.create(
+            model=self._model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        return "".join(b.text for b in message.content if b.type == "text").strip()
