@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { PartyPopper } from "lucide-react";
-import { api } from "../lib/api";
+import { api, CardOut } from "../lib/api";
 import { Card, Progress } from "../components/ui";
 import { useReviewQueue } from "../lib/useReviewQueue";
 import { useKeys, KeyMap } from "../lib/useKeys";
 import { shuffle } from "../lib/shuffle";
 import { ShortcutHints } from "../components/ShortcutHints";
 import { SessionEndCard } from "../components/SessionEndCard";
+import { ResumeCard } from "../components/ResumeCard";
+import { clearSession, loadSession, saveSession } from "../lib/sessionStore";
 import { cn } from "../lib/cn";
 
 const ROUND_SIZE = 6;
@@ -23,11 +25,28 @@ interface RightTile {
   answer: string;
 }
 
+interface MatchSave {
+  order: number[];
+  roundIndex: number;
+  roundsCompleted: number;
+  totalMistakes: number;
+}
+
+interface PendingResume {
+  savedAt: number;
+  cards: CardOut[];
+  roundIndex: number;
+  roundsCompleted: number;
+  totalMistakes: number;
+}
+
 export function MatchPage() {
   const { id } = useParams<{ id: string }>();
   const docId = Number(id);
-  const { cards, error } = useReviewQueue(docId, "cram");
+  const { cards: fetched, error } = useReviewQueue(docId, "cram");
 
+  const [pending, setPending] = useState<PendingResume | null>(null);
+  const [cards, setCards] = useState<CardOut[] | null>(null);
   const [roundIndex, setRoundIndex] = useState(0);
   const [shuffleSeed, setShuffleSeed] = useState(0);
   const [stage, setStage] = useState<Stage>("playing");
@@ -41,6 +60,34 @@ export function MatchPage() {
   const [totalMistakes, setTotalMistakes] = useState(0);
   const [runError, setRunError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!fetched) return;
+    if (fetched.length < MIN_CARDS) {
+      setCards(fetched);
+      return;
+    }
+    const byId = new Map(fetched.map((c) => [c.id, c]));
+    const saved = loadSession<MatchSave>("match", docId);
+    if (saved) {
+      const order = saved.data.order.filter((cardId) => byId.has(cardId));
+      const roundCount = Math.ceil(order.length / ROUND_SIZE);
+      const savedRound = Math.min(saved.data.roundIndex, roundCount);
+      if (savedRound > 0 && savedRound < roundCount) {
+        setPending({
+          savedAt: saved.savedAt,
+          cards: order.map((cardId) => byId.get(cardId)!),
+          roundIndex: savedRound,
+          roundsCompleted: saved.data.roundsCompleted,
+          totalMistakes: saved.data.totalMistakes,
+        });
+        return;
+      }
+      clearSession("match", docId);
+    }
+    setCards(fetched);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetched, docId]);
+
   const rounds = useMemo(() => {
     if (!cards) return [];
     const chunks = [];
@@ -48,6 +95,47 @@ export function MatchPage() {
     return chunks;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cards, shuffleSeed]);
+
+  // Autosave at round granularity: a finished round advances the checkpoint;
+  // the session clears once the last round is done.
+  useEffect(() => {
+    if (!cards || cards.length < MIN_CARDS || rounds.length === 0) return;
+    const effRound = stage === "roundComplete" ? roundIndex + 1 : roundIndex;
+    if (stage === "done" || effRound >= rounds.length) {
+      clearSession("match", docId);
+      return;
+    }
+    if (effRound === 0) return;
+    saveSession<MatchSave>("match", docId, {
+      order: cards.map((c) => c.id),
+      roundIndex: effRound,
+      roundsCompleted,
+      totalMistakes,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cards, rounds.length, roundIndex, stage, roundsCompleted, totalMistakes]);
+
+  function resume() {
+    if (!pending) return;
+    setCards(pending.cards);
+    setRoundIndex(pending.roundIndex);
+    setRoundsCompleted(pending.roundsCompleted);
+    setTotalMistakes(pending.totalMistakes);
+    resetRoundState();
+    setStage("playing");
+    setPending(null);
+  }
+
+  function startOver() {
+    clearSession("match", docId);
+    setPending(null);
+    setCards(fetched ?? []);
+    setRoundIndex(0);
+    setRoundsCompleted(0);
+    setTotalMistakes(0);
+    resetRoundState();
+    setStage("playing");
+  }
 
   const leftItems = rounds[roundIndex] ?? [];
 
@@ -131,6 +219,7 @@ export function MatchPage() {
   }
 
   function retry() {
+    clearSession("match", docId);
     setRoundIndex(0);
     resetRoundState();
     setRoundsCompleted(0);
@@ -143,6 +232,11 @@ export function MatchPage() {
   useKeys(
     (() => {
       const map: KeyMap = {};
+      if (pending) {
+        // Guard: while the resume prompt is up, Enter only resumes.
+        map["Enter"] = () => resume();
+        return map;
+      }
       if (stage === "playing") {
         leftItems.forEach((_, i) => {
           map[LEFT_KEYS[i]] = () => selectLeft(i);
@@ -162,7 +256,7 @@ export function MatchPage() {
       return map;
       // eslint-disable-next-line react-hooks/exhaustive-deps
     })(),
-    [stage, leftItems, rightItems, selectedLeft, selectedRight, matchedLeft, matchedRight, wrongPair],
+    [pending, stage, leftItems, rightItems, selectedLeft, selectedRight, matchedLeft, matchedRight, wrongPair],
   );
 
   if (error || runError) {
@@ -173,6 +267,22 @@ export function MatchPage() {
           Back to document
         </Link>
       </Card>
+    );
+  }
+
+  if (fetched === null) {
+    return <div className="h-64 animate-pulse rounded-card bg-white/60" />;
+  }
+
+  if (pending) {
+    const totalRounds = Math.ceil(pending.cards.length / ROUND_SIZE);
+    return (
+      <ResumeCard
+        progressLine={`${pending.roundIndex} of ${totalRounds} round${totalRounds === 1 ? "" : "s"} done`}
+        savedAt={pending.savedAt}
+        onResume={resume}
+        onStartOver={startOver}
+      />
     );
   }
 

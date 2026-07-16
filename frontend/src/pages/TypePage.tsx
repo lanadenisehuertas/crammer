@@ -8,15 +8,34 @@ import { useKeys } from "../lib/useKeys";
 import { isAnswerCorrect } from "../lib/grading";
 import { ShortcutHints } from "../components/ShortcutHints";
 import { SessionEndCard } from "../components/SessionEndCard";
+import { ResumeCard } from "../components/ResumeCard";
+import { clearSession, loadSession, saveSession } from "../lib/sessionStore";
 import { cn } from "../lib/cn";
 
 type Stage = "answering" | "feedback";
 
+interface TypeSave {
+  order: number[];
+  index: number;
+  correctCount: number;
+  missedIds: number[];
+}
+
+interface PendingResume {
+  savedAt: number;
+  cards: CardOut[];
+  index: number;
+  correctCount: number;
+  missed: CardOut[];
+}
+
 export function TypePage() {
   const { id } = useParams<{ id: string }>();
   const docId = Number(id);
-  const { cards, error } = useReviewQueue(docId, "cram");
+  const { cards: fetched, error } = useReviewQueue(docId, "cram");
 
+  const [pending, setPending] = useState<PendingResume | null>(null);
+  const [cards, setCards] = useState<CardOut[] | null>(null);
   const [index, setIndex] = useState(0);
   const [value, setValue] = useState("");
   const [stage, setStage] = useState<Stage>("answering");
@@ -28,11 +47,81 @@ export function TypePage() {
   const [runError, setRunError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    if (!fetched) return;
+    if (fetched.length === 0) {
+      setCards(fetched);
+      return;
+    }
+    const byId = new Map(fetched.map((c) => [c.id, c]));
+    const saved = loadSession<TypeSave>("type", docId);
+    if (saved) {
+      const order = saved.data.order.filter((cardId) => byId.has(cardId));
+      const savedIndex = Math.min(saved.data.index, order.length);
+      if (savedIndex > 0 && savedIndex < order.length) {
+        setPending({
+          savedAt: saved.savedAt,
+          cards: order.map((cardId) => byId.get(cardId)!),
+          index: savedIndex,
+          correctCount: saved.data.correctCount,
+          missed: saved.data.missedIds
+            .filter((cardId) => byId.has(cardId))
+            .map((cardId) => byId.get(cardId)!),
+        });
+        return;
+      }
+      clearSession("type", docId);
+    }
+    setCards(fetched);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetched, docId]);
+
+  // Autosave: a card counts as answered once feedback is showing, so a
+  // resume never re-asks a question that was already graded.
+  useEffect(() => {
+    if (!cards || cards.length === 0) return;
+    const effIndex = stage === "feedback" ? index + 1 : index;
+    if (effIndex >= cards.length) {
+      clearSession("type", docId);
+      return;
+    }
+    if (effIndex === 0) return;
+    saveSession<TypeSave>("type", docId, {
+      order: cards.map((c) => c.id),
+      index: effIndex,
+      correctCount,
+      missedIds: missed.map((c) => c.id),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cards, index, stage, correctCount, missed]);
+
+  function resume() {
+    if (!pending) return;
+    setCards(pending.cards);
+    setIndex(pending.index);
+    setCorrectCount(pending.correctCount);
+    setMissed(pending.missed);
+    setStage("answering");
+    setValue("");
+    setPending(null);
+  }
+
+  function startOver() {
+    clearSession("type", docId);
+    setPending(null);
+    setCards(fetched ?? []);
+    setIndex(0);
+    setCorrectCount(0);
+    setMissed([]);
+    setStage("answering");
+    setValue("");
+  }
+
   const card = cards && index < cards.length ? cards[index] : null;
 
   useEffect(() => {
     if (stage === "answering") inputRef.current?.focus();
-  }, [index, stage]);
+  }, [index, stage, cards]);
 
   async function submit() {
     if (!card || submitting || stage !== "answering" || !value.trim()) return;
@@ -78,6 +167,7 @@ export function TypePage() {
   }
 
   function retry() {
+    clearSession("type", docId);
     setIndex(0);
     setValue("");
     setStage("answering");
@@ -90,10 +180,19 @@ export function TypePage() {
 
   useKeys(
     {
-      Enter: () => advance(),
-      o: () => override(),
+      Enter: () => {
+        // Guard: while the resume prompt is up, Enter only resumes.
+        if (pending) {
+          resume();
+          return;
+        }
+        advance();
+      },
+      o: () => {
+        if (!pending) override();
+      },
     },
-    [stage, card?.id, wasCorrect, overridden, submitting],
+    [pending, stage, card?.id, wasCorrect, overridden, submitting],
   );
 
   if (error || runError) {
@@ -104,6 +203,21 @@ export function TypePage() {
           Back to document
         </Link>
       </Card>
+    );
+  }
+
+  if (fetched === null) {
+    return <div className="h-64 animate-pulse rounded-card bg-white/60" />;
+  }
+
+  if (pending) {
+    return (
+      <ResumeCard
+        progressLine={`${pending.index} of ${pending.cards.length} done`}
+        savedAt={pending.savedAt}
+        onResume={resume}
+        onStartOver={startOver}
+      />
     );
   }
 

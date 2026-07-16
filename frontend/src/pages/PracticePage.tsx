@@ -5,32 +5,112 @@ import { api, CardOut } from "../lib/api";
 import { Card, Progress } from "../components/ui";
 import { useKeys } from "../lib/useKeys";
 import { ShortcutHints } from "../components/ShortcutHints";
+import { ResumeCard } from "../components/ResumeCard";
+import { clearSession, loadSession, saveSession } from "../lib/sessionStore";
+
+interface PracticeSave {
+  order: number[];
+  results: boolean[];
+}
+
+interface PendingResume {
+  savedAt: number;
+  cards: CardOut[];
+  results: boolean[];
+}
 
 export function PracticePage() {
   const { id } = useParams<{ id: string }>();
   const docId = Number(id);
 
-  const [cards, setCards] = useState<CardOut[] | null>(null);
+  const [fetched, setFetched] = useState<CardOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [index, setIndex] = useState(0);
-  const [revealed, setRevealed] = useState(false);
+  const [pending, setPending] = useState<PendingResume | null>(null);
+
+  // The session's card order (the server shuffles each fetch, so a resumed
+  // session restores its own saved order).
+  const [cards, setCards] = useState<CardOut[] | null>(null);
   const [results, setResults] = useState<boolean[]>([]);
+  const [revealed, setRevealed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  const index = results.length;
+
   useEffect(() => {
+    let cancelled = false;
     api
       .practice(docId)
-      .then((res) => setCards(res.cards))
-      .catch((e) => setError(e.message ?? "Could not load the practice test."));
+      .then((res) => {
+        if (cancelled) return;
+        setFetched(res.cards);
+        const byId = new Map(res.cards.map((c) => [c.id, c]));
+        const saved = loadSession<PracticeSave>("practice", docId);
+        if (saved) {
+          const keptOrder: number[] = [];
+          const keptResults: boolean[] = [];
+          saved.data.order.forEach((cardId, i) => {
+            if (!byId.has(cardId)) return; // drop vanished cards
+            keptOrder.push(cardId);
+            if (i < saved.data.results.length) keptResults.push(saved.data.results[i]);
+          });
+          if (keptResults.length > 0 && keptResults.length < keptOrder.length) {
+            setPending({
+              savedAt: saved.savedAt,
+              cards: keptOrder.map((cardId) => byId.get(cardId)!),
+              results: keptResults,
+            });
+            return;
+          }
+          clearSession("practice", docId);
+        }
+        setCards(res.cards);
+        setResults([]);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message ?? "Could not load the practice test.");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [docId]);
 
+  // Autosave progress; clear once the test is finished.
+  useEffect(() => {
+    if (!cards || cards.length === 0) return;
+    if (results.length >= cards.length) {
+      clearSession("practice", docId);
+      return;
+    }
+    if (results.length === 0) return;
+    saveSession<PracticeSave>("practice", docId, {
+      order: cards.map((c) => c.id),
+      results,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cards, results]);
+
+  function resume() {
+    if (!pending) return;
+    setCards(pending.cards);
+    setResults(pending.results);
+    setRevealed(false);
+    setPending(null);
+  }
+
+  function startOver() {
+    clearSession("practice", docId);
+    setPending(null);
+    setCards(fetched ?? []);
+    setResults([]);
+    setRevealed(false);
+  }
+
   async function grade(correct: boolean) {
-    if (!cards || submitting) return;
+    if (!cards || index >= cards.length || submitting) return;
     setSubmitting(true);
     try {
       await api.review(cards[index].id, correct ? "good" : "again");
       setResults((r) => [...r, correct]);
-      setIndex((i) => i + 1);
       setRevealed(false);
     } catch (e) {
       setError((e as Error).message ?? "Could not save that answer.");
@@ -42,19 +122,24 @@ export function PracticePage() {
   useKeys(
     {
       " ": () => {
-        if (cards && index < cards.length && !revealed) setRevealed(true);
+        if (!pending && cards && index < cards.length && !revealed) setRevealed(true);
       },
       Enter: () => {
+        // Guard: while the resume prompt is up, Enter only resumes.
+        if (pending) {
+          resume();
+          return;
+        }
         if (cards && index < cards.length && !revealed) setRevealed(true);
       },
       "1": () => {
-        if (revealed) grade(true);
+        if (!pending && revealed) grade(true);
       },
       "2": () => {
-        if (revealed) grade(false);
+        if (!pending && revealed) grade(false);
       },
     },
-    [cards, index, revealed, submitting],
+    [pending, cards, results, revealed, submitting],
   );
 
   if (error) {
@@ -65,6 +150,21 @@ export function PracticePage() {
           Back to document
         </Link>
       </Card>
+    );
+  }
+
+  if (fetched === null) {
+    return <div className="h-64 animate-pulse rounded-card bg-white/60" />;
+  }
+
+  if (pending) {
+    return (
+      <ResumeCard
+        progressLine={`${pending.results.length} of ${pending.cards.length} done`}
+        savedAt={pending.savedAt}
+        onResume={resume}
+        onStartOver={startOver}
+      />
     );
   }
 
