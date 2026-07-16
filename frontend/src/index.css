@@ -50,3 +50,35 @@
     transform: translateX(3px);
   }
 }
+
+/* Cheat-sheet printing: a hidden container (portalled to a direct child of
+   #root) becomes the only visible content when the user hits Print. */
+#print-cheat-sheet {
+  display: none;
+}
+
+@media print {
+  #root > *:not(#print-cheat-sheet) {
+    display: none !important;
+  }
+
+  #print-cheat-sheet {
+    display: block !important;
+    background: #fff;
+    color: #000;
+    padding: 0;
+  }
+
+  #print-cheat-sheet h1 {
+    margin-bottom: 1rem;
+    font-size: 1.5rem;
+    font-weight: 800;
+  }
+
+  #print-cheat-sheet pre {
+    white-space: pre-wrap;
+    font-family: inherit;
+    font-size: 0.95rem;
+    line-height: 1.6;
+  }
+}
