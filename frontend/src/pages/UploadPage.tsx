@@ -64,11 +64,14 @@ export function UploadPage() {
             <FileUp size={18} />
           </div>
           <h2 className="mb-1 text-base font-bold text-ink">Upload a file</h2>
-          <p className="mb-4 text-sm text-muted">PDF, DOCX, TXT, or spreadsheet files.</p>
+          <p className="mb-4 text-sm text-muted">
+            PDF, DOCX, PPTX, images, spreadsheets, HTML, EPUB, or text files.
+          </p>
 
           <input
             ref={fileInputRef}
             type="file"
+            accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,.gif,.webp,.csv,.xlsx,.xls,.html,.htm,.epub,.txt,.md,.markdown,.rtf"
             className="hidden"
             onChange={(e) => setPickedFile(e.target.files?.[0] ?? null)}
           />
