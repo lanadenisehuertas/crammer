@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Study — {{ doc.title }}{% endblock %}
+{% block content %}
+  <div class="card">
+    <p class="muted">
+      {{ doc.title }}
+      {% if total %}· card {{ index + 1 }} of {{ total }}{% endif %}
+      · <span class="badge file">{{ card.card_type }}</span>
+    </p>
+    <h2>{{ card.question }}</h2>
+
+    {% if not reveal %}
+      {% if mode == 'study' %}
+        <a class="btn" href="/study/{{ doc.id }}?card={{ card.id }}&reveal=1">Show answer</a>
+      {% else %}
+        <a class="btn" href="/session/{{ doc.id }}/{{ mode }}?i={{ index }}&reveal=1">Show answer</a>
+      {% endif %}
+    {% else %}
+      <div class="card" style="background:#0d0f15;">{{ card.answer }}</div>
+      <form action="/review" method="post">
+        <input type="hidden" name="doc_id" value="{{ doc.id }}">
+        <input type="hidden" name="card_id" value="{{ card.id }}">
+        <input type="hidden" name="mode" value="{{ mode }}">
+        <input type="hidden" name="index" value="{{ index or 0 }}">
+        <button class="btn secondary" name="rating" value="again">Again</button>
+        <button class="btn secondary" name="rating" value="hard">Hard</button>
+        <button class="btn" name="rating" value="good">Good</button>
+        <button class="btn" name="rating" value="easy">Easy</button>
+      </form>
+    {% endif %}
+    <p style="margin-top:16px;"><a class="muted" href="/document/{{ doc.id }}">← Back</a></p>
+  </div>
+{% endblock %}

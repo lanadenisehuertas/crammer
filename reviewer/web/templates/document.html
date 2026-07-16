@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.title }} — Crammer{% endblock %}
+{% block content %}
+  <div class="card">
+    <h2>{{ doc.title }}</h2>
+    <p class="muted">
+      {{ stats.cards_due }} due now · {{ stats.cards_total }} cards ·
+      {{ stats.modules_finished }}/{{ stats.modules_total }} topics mastered
+    </p>
+    <p>
+      <a class="btn" href="/study/{{ doc.id }}">Study due</a>
+      <a class="btn secondary" href="/session/{{ doc.id }}/cram">Cram all</a>
+      <a class="btn secondary" href="/session/{{ doc.id }}/weak">Weak spots</a>
+      <a class="btn secondary" href="/practice/{{ doc.id }}">Practice test</a>
+    </p>
+    <form action="/document/{{ doc.id }}/exam-date" method="post"
+          style="margin-top:12px; display:flex; gap:8px; align-items:end;">
+      <div style="flex:1;">
+        <label>Exam date (optional — front-loads reviews)</label>
+        <input type="date" name="exam_date" value="{{ doc.exam_date or '' }}">
+      </div>
+      <button class="btn secondary" type="submit">Save</button>
+    </form>
+  </div>
+
+  {% if doc.cheat_sheet %}
+  <div class="card">
+    <h3>📄 Cheat sheet</h3>
+    <pre style="white-space:pre-wrap; font-family:inherit;">{{ doc.cheat_sheet }}</pre>
+  </div>
+  {% endif %}
+
+  {% for item in modules %}
+  <div class="card">
+    <h3>{{ item.module.title }}
+      {% if item.finished %}<span class="badge file">✓ mastered</span>{% endif %}
+    </h3>
+    {% for s in item.sections %}
+      <p><strong>{{ s.heading }}</strong>
+        {% if s.origin == 'added-context' %}
+          <span class="badge added">Added context</span>
+        {% else %}
+          <span class="badge file">From file</span>
+        {% endif %}
+        <br>{{ s.content }}</p>
+    {% endfor %}
+    <p class="muted">{{ item.cards | length }} cards</p>
+  </div>
+  {% endfor %}
+{% endblock %}

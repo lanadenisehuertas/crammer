@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="card">
+    <h2>Practice complete</h2>
+    <div class="streak">{{ result.percent }}%</div>
+    <p class="muted">{{ result.correct }} of {{ result.total }} correct</p>
+    <a class="btn" href="/practice/{{ doc.id }}">Retake</a>
+    <a class="btn secondary" href="/document/{{ doc.id }}">Back</a>
+  </div>
+{% endblock %}

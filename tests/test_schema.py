@@ -65,3 +65,9 @@ def test_foreign_key_enforced_on_modules():
         raised = True
     assert raised
     conn.close()
+
+
+def test_connect_allows_cross_thread_when_requested():
+    conn = connect(":memory:", check_same_thread=False)
+    assert conn.execute("SELECT 1").fetchone()[0] == 1
+    conn.close()
