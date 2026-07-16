@@ -72,6 +72,26 @@ def create_app(conn_factory, client) -> FastAPI:
                         flashcard_pairs=parsed.flashcard_pairs)
         return RedirectResponse(f"/document/{doc.id}", status_code=303)
 
+    @app.get("/document/{doc_id}", response_class=HTMLResponse)
+    def document_view(doc_id: int, request: Request,
+                      conn: sqlite3.Connection = Depends(get_conn)):
+        doc = repo.get_document(conn, doc_id)
+        if doc is None:
+            return _error(request, "That document does not exist.", status=404)
+        modules = []
+        for m in repo.list_modules(conn, doc_id):
+            modules.append({
+                "module": m,
+                "sections": repo.list_sections(conn, m.id),
+                "cards": repo.list_cards_for_module(conn, m.id),
+                "finished": all(c.review_count > 0
+                                for c in repo.list_cards_for_module(conn, m.id))
+                            and bool(repo.list_cards_for_module(conn, m.id)),
+            })
+        stats = dashboard_stats(conn, doc_id, now=datetime.now(), today=date.today())
+        ctx = {"doc": doc, "modules": modules, "stats": stats}
+        return templates.TemplateResponse(request, "document.html", ctx)
+
     # further routes added in later tasks
 
     app.state.conn_factory = conn_factory
