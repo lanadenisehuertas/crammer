@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import anthropic
 import httpx
 import pytest
@@ -337,3 +339,252 @@ def test_generate_unknown_doc_404(ctx):
     client, factory = ctx
     r = client.post("/api/documents/999/generate")
     assert r.status_code == 404
+
+
+# --- Feature 1: global queue --------------------------------------------
+
+def test_global_queue_concatenates_across_documents(ctx):
+    client, factory = ctx
+    doc1 = _paste(client, text="doc one", title="One").json()["document_id"]
+    doc2 = _paste(client, text="doc two", title="Two").json()["document_id"]
+
+    r = client.get("/api/queue", params={"mode": "due"})
+    assert r.status_code == 200
+    cards = r.json()["cards"]
+    assert len(cards) == 2
+    doc_ids = {c["document_id"] for c in cards}
+    assert doc_ids == {doc1, doc2}
+    assert all("document_id" in c for c in cards)
+
+
+def test_global_queue_empty_when_no_documents(ctx):
+    client, factory = ctx
+    r = client.get("/api/queue", params={"mode": "due"})
+    assert r.status_code == 200
+    assert r.json()["cards"] == []
+
+
+def test_global_queue_bad_mode_404(ctx):
+    client, factory = ctx
+    r = client.get("/api/queue", params={"mode": "bogus"})
+    assert r.status_code == 404
+
+
+def test_queue_card_out_includes_document_id(ctx):
+    client, factory = ctx
+    doc_id = _paste(client).json()["document_id"]
+    r = client.get(f"/api/documents/{doc_id}/queue", params={"mode": "due"})
+    assert r.json()["cards"][0]["document_id"] == doc_id
+
+
+# --- Feature 2: delete a document ----------------------------------------
+
+def test_delete_document_removes_cards(ctx):
+    client, factory = ctx
+    doc_id = _paste(client).json()["document_id"]
+    card_id = repo.list_cards_for_document(factory(), doc_id)[0].id
+
+    r = client.delete(f"/api/documents/{doc_id}")
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+
+    conn = factory()
+    assert repo.get_document(conn, doc_id) is None
+    assert repo.get_card(conn, card_id) is None
+
+
+def test_delete_document_unknown_404(ctx):
+    client, factory = ctx
+    r = client.delete("/api/documents/999")
+    assert r.status_code == 404
+
+
+# --- Feature 3: own your cards -------------------------------------------
+
+def test_document_detail_modules_include_cards(ctx):
+    client, factory = ctx
+    doc_id = _paste(client).json()["document_id"]
+    r = client.get(f"/api/documents/{doc_id}")
+    module = r.json()["modules"][0]
+    assert module["cards_count"] == 1
+    assert len(module["cards"]) == 1
+    assert module["cards"][0]["question"] == "Q?"
+
+
+def test_create_card_happy_path(ctx):
+    client, factory = ctx
+    doc_id = _paste(client).json()["document_id"]
+    module_id = repo.list_modules(factory(), doc_id)[0].id
+
+    r = client.post(f"/api/documents/{doc_id}/cards", json={
+        "module_id": module_id, "question": "New Q", "answer": "New A",
+        "card_type": "flashcard",
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["question"] == "New Q"
+    assert body["module_id"] == module_id
+    assert body["document_id"] == doc_id
+
+    conn = factory()
+    card = repo.get_card(conn, body["id"])
+    assert card.review_count == 0
+    assert card.due_at <= datetime.now().isoformat(timespec="seconds")
+
+
+def test_create_card_unknown_document_404(ctx):
+    client, factory = ctx
+    r = client.post("/api/documents/999/cards", json={
+        "module_id": 1, "question": "Q", "answer": "A", "card_type": "flashcard",
+    })
+    assert r.status_code == 404
+
+
+def test_create_card_module_not_in_document_400(ctx):
+    client, factory = ctx
+    doc1 = _paste(client, text="one", title="One").json()["document_id"]
+    doc2 = _paste(client, text="two", title="Two").json()["document_id"]
+    other_module_id = repo.list_modules(factory(), doc2)[0].id
+
+    r = client.post(f"/api/documents/{doc1}/cards", json={
+        "module_id": other_module_id, "question": "Q", "answer": "A",
+        "card_type": "flashcard",
+    })
+    assert r.status_code == 400
+
+
+def test_create_card_blank_question_or_answer_400(ctx):
+    client, factory = ctx
+    doc_id = _paste(client).json()["document_id"]
+    module_id = repo.list_modules(factory(), doc_id)[0].id
+
+    r = client.post(f"/api/documents/{doc_id}/cards", json={
+        "module_id": module_id, "question": "   ", "answer": "A",
+        "card_type": "flashcard",
+    })
+    assert r.status_code == 400
+
+
+def test_create_card_bad_type_400(ctx):
+    client, factory = ctx
+    doc_id = _paste(client).json()["document_id"]
+    module_id = repo.list_modules(factory(), doc_id)[0].id
+
+    r = client.post(f"/api/documents/{doc_id}/cards", json={
+        "module_id": module_id, "question": "Q", "answer": "A", "card_type": "bogus",
+    })
+    assert r.status_code == 400
+
+
+def test_update_card_partial_fields(ctx):
+    client, factory = ctx
+    doc_id = _paste(client).json()["document_id"]
+    card_id = repo.list_cards_for_document(factory(), doc_id)[0].id
+
+    r = client.patch(f"/api/cards/{card_id}", json={"question": "Edited Q"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["question"] == "Edited Q"
+    assert body["answer"] == "A."  # unchanged
+    assert body["card_type"] == "flashcard"  # unchanged
+
+
+def test_update_card_bad_type_400(ctx):
+    client, factory = ctx
+    doc_id = _paste(client).json()["document_id"]
+    card_id = repo.list_cards_for_document(factory(), doc_id)[0].id
+    r = client.patch(f"/api/cards/{card_id}", json={"card_type": "bogus"})
+    assert r.status_code == 400
+
+
+def test_update_card_unknown_404(ctx):
+    client, factory = ctx
+    r = client.patch("/api/cards/999", json={"question": "Q"})
+    assert r.status_code == 404
+
+
+def test_delete_card_happy_path_and_404(ctx):
+    client, factory = ctx
+    doc_id = _paste(client).json()["document_id"]
+    card_id = repo.list_cards_for_document(factory(), doc_id)[0].id
+
+    r = client.delete(f"/api/cards/{card_id}")
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+    assert repo.get_card(factory(), card_id) is None
+
+    r_missing = client.delete(f"/api/cards/{card_id}")
+    assert r_missing.status_code == 404
+
+
+# --- Feature 5: generate more cards --------------------------------------
+
+class MoreCardsClient(FakeClient):
+    """Fake whose generate_text returns more-cards JSON for the more-cards prompt."""
+
+    def generate_text(self, system, user, max_tokens=16000):
+        if "duplicat" in system.lower():
+            return '{"cards":[{"type":"flashcard","question":"New Q?","answer":"New A."}]}'
+        return super().generate_text(system, user, max_tokens)
+
+
+def test_more_cards_happy_path(tmp_path):
+    client, factory = _make_ctx(tmp_path, MoreCardsClient())
+    doc_id = _paste(client).json()["document_id"]
+    module_id = repo.list_modules(factory(), doc_id)[0].id
+
+    r = client.post(f"/api/documents/{doc_id}/modules/{module_id}/more-cards")
+    assert r.status_code == 200
+    assert r.json() == {"added": 1}
+
+    cards = repo.list_cards_for_module(factory(), module_id)
+    questions = {c.question for c in cards}
+    assert "New Q?" in questions
+
+
+def test_more_cards_unknown_document_404(ctx):
+    client, factory = ctx
+    r = client.post("/api/documents/999/modules/1/more-cards")
+    assert r.status_code == 404
+
+
+def test_more_cards_unknown_module_404(ctx):
+    client, factory = ctx
+    doc_id = _paste(client).json()["document_id"]
+    r = client.post(f"/api/documents/{doc_id}/modules/9999/more-cards")
+    assert r.status_code == 404
+
+
+def test_more_cards_module_from_other_document_404(ctx):
+    client, factory = ctx
+    doc1 = _paste(client, text="one", title="One").json()["document_id"]
+    doc2 = _paste(client, text="two", title="Two").json()["document_id"]
+    other_module_id = repo.list_modules(factory(), doc2)[0].id
+
+    r = client.post(f"/api/documents/{doc1}/modules/{other_module_id}/more-cards")
+    assert r.status_code == 404
+
+
+def test_more_cards_reply_with_wrong_shape_adds_zero(ctx):
+    # Plain FakeClient always returns the {"modules": [...]} shape, not
+    # {"cards": [...]}; parse_cards yields [] and the endpoint reports 0 added.
+    client, factory = ctx
+    doc_id = _paste(client).json()["document_id"]
+    module_id = repo.list_modules(factory(), doc_id)[0].id
+
+    r = client.post(f"/api/documents/{doc_id}/modules/{module_id}/more-cards")
+    assert r.status_code == 200
+    assert r.json() == {"added": 0}
+
+
+def test_more_cards_claude_error_maps_to_502(tmp_path):
+    failing = FailingClient(_credit_error())
+    client, factory = _make_ctx(tmp_path, failing)
+    failing.exc = None
+    doc_id = _paste(client).json()["document_id"]
+    module_id = repo.list_modules(factory(), doc_id)[0].id
+
+    failing.exc = _credit_error()
+    r = client.post(f"/api/documents/{doc_id}/modules/{module_id}/more-cards")
+    assert r.status_code == 502
+    assert "credit" in r.json()["detail"].lower()

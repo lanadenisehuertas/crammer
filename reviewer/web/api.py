@@ -8,7 +8,9 @@ from pydantic import BaseModel
 
 from reviewer import repository as repo
 from reviewer.generation import build_and_store
+from reviewer.generation.generator import generate_more_cards
 from reviewer.ingest import ingest_file, ingest_text
+from reviewer.models import Card
 from reviewer.parsing.base import EmptyContentError, UnsupportedFileType
 from reviewer.practice.test import build_practice_test
 from reviewer.progress.mastery import module_finished
@@ -16,6 +18,8 @@ from reviewer.progress.stats import dashboard_stats, reviews_by_day
 from reviewer.progress.streaks import current_streak, longest_streak
 from reviewer.scheduler.review import review_card
 from reviewer.scheduler.selection import cram_cards, due_cards, weak_spot_cards
+
+_VALID_CARD_TYPES = {"flashcard", "fill-in-blank", "short-answer"}
 
 
 class PasteBody(BaseModel):
@@ -30,6 +34,19 @@ class ReviewBody(BaseModel):
 
 class ExamDateBody(BaseModel):
     exam_date: str | None = None
+
+
+class CardCreateBody(BaseModel):
+    module_id: int
+    question: str
+    answer: str
+    card_type: str
+
+
+class CardUpdateBody(BaseModel):
+    question: str | None = None
+    answer: str | None = None
+    card_type: str | None = None
 
 
 def _claude_api_http_error(e: anthropic.APIError) -> HTTPException:
@@ -77,6 +94,7 @@ def _doc_summary(conn: sqlite3.Connection, doc, now: datetime, today: date) -> d
 def _card_out(card) -> dict:
     return {
         "id": card.id,
+        "document_id": card.document_id,
         "module_id": card.module_id,
         "card_type": card.card_type,
         "question": card.question,
@@ -128,6 +146,7 @@ def build_api_router(get_conn, client) -> APIRouter:
                 "finished": module_finished(conn, m.id),
                 "cards_count": len(cards),
                 "sections": sections,
+                "cards": [_card_out(c) for c in cards],
             })
         return {
             **summary,
@@ -186,6 +205,13 @@ def build_api_router(get_conn, client) -> APIRouter:
             raise _claude_api_http_error(e)
         return {"ok": True}
 
+    @router.delete("/documents/{doc_id}")
+    def delete_document(doc_id: int, conn: sqlite3.Connection = Depends(get_conn)):
+        if repo.get_document(conn, doc_id) is None:
+            raise HTTPException(404, "That document does not exist.")
+        repo.delete_document(conn, doc_id)
+        return {"ok": True}
+
     @router.get("/documents/{doc_id}/queue")
     def queue(doc_id: int, mode: str = "due", conn: sqlite3.Connection = Depends(get_conn)):
         doc = repo.get_document(conn, doc_id)
@@ -201,6 +227,20 @@ def build_api_router(get_conn, client) -> APIRouter:
             raise HTTPException(404, "Unknown study mode.")
         return {"cards": [_card_out(c) for c in cards]}
 
+    @router.get("/queue")
+    def global_queue(mode: str = "due", conn: sqlite3.Connection = Depends(get_conn)):
+        if mode not in ("due", "cram", "weak"):
+            raise HTTPException(404, "Unknown study mode.")
+        cards = []
+        for doc in repo.list_documents(conn):
+            if mode == "due":
+                cards.extend(due_cards(conn, doc.id, now=datetime.now()))
+            elif mode == "cram":
+                cards.extend(cram_cards(conn, doc.id))
+            else:
+                cards.extend(weak_spot_cards(conn, doc.id))
+        return {"cards": [_card_out(c) for c in cards]}
+
     @router.post("/review")
     def review(body: ReviewBody, conn: sqlite3.Connection = Depends(get_conn)):
         try:
@@ -208,6 +248,72 @@ def build_api_router(get_conn, client) -> APIRouter:
         except ValueError:
             raise HTTPException(400, "That card or rating is no longer valid.")
         return {"ok": True}
+
+    @router.post("/documents/{doc_id}/cards")
+    def create_card(doc_id: int, body: CardCreateBody,
+                    conn: sqlite3.Connection = Depends(get_conn)):
+        if repo.get_document(conn, doc_id) is None:
+            raise HTTPException(404, "That document does not exist.")
+        module = repo.get_module(conn, body.module_id)
+        if module is None or module.document_id != doc_id:
+            raise HTTPException(400, "That module does not belong to this document.")
+        question = body.question.strip()
+        answer = body.answer.strip()
+        if not question or not answer:
+            raise HTTPException(400, "Question and answer are required.")
+        if body.card_type not in _VALID_CARD_TYPES:
+            raise HTTPException(400, "Unknown card type.")
+        now = datetime.now().isoformat(timespec="seconds")
+        card = repo.create_card(conn, Card(
+            id=None, document_id=doc_id, module_id=module.id, card_type=body.card_type,
+            question=question, answer=answer, due_at=now, review_count=0, created_at=now))
+        return _card_out(card)
+
+    @router.patch("/cards/{card_id}")
+    def update_card(card_id: int, body: CardUpdateBody,
+                    conn: sqlite3.Connection = Depends(get_conn)):
+        card = repo.get_card(conn, card_id)
+        if card is None:
+            raise HTTPException(404, "That card does not exist.")
+        card_type = body.card_type if body.card_type is not None else card.card_type
+        if card_type not in _VALID_CARD_TYPES:
+            raise HTTPException(400, "Unknown card type.")
+        question = body.question if body.question is not None else card.question
+        answer = body.answer if body.answer is not None else card.answer
+        repo.update_card_content(conn, card_id, question=question, answer=answer,
+                                 card_type=card_type)
+        return _card_out(repo.get_card(conn, card_id))
+
+    @router.delete("/cards/{card_id}")
+    def delete_card(card_id: int, conn: sqlite3.Connection = Depends(get_conn)):
+        if repo.get_card(conn, card_id) is None:
+            raise HTTPException(404, "That card does not exist.")
+        repo.delete_card(conn, card_id)
+        return {"ok": True}
+
+    @router.post("/documents/{doc_id}/modules/{module_id}/more-cards")
+    def more_cards(doc_id: int, module_id: int, conn: sqlite3.Connection = Depends(get_conn)):
+        if repo.get_document(conn, doc_id) is None:
+            raise HTTPException(404, "That document does not exist.")
+        module = repo.get_module(conn, module_id)
+        if module is None or module.document_id != doc_id:
+            raise HTTPException(404, "That module does not exist.")
+        sections = repo.list_sections(conn, module_id)
+        sections_text = "\n".join(f"{s.heading}: {s.content}" for s in sections)
+        existing_questions = [c.question for c in repo.list_cards_for_module(conn, module_id)]
+        try:
+            new_cards = generate_more_cards(client, sections_text, existing_questions)
+        except anthropic.APIError as e:
+            raise _claude_api_http_error(e)
+        now = datetime.now().isoformat(timespec="seconds")
+        added = 0
+        for gc in new_cards:
+            repo.create_card(conn, Card(
+                id=None, document_id=doc_id, module_id=module_id, card_type=gc.card_type,
+                question=gc.question, answer=gc.answer, due_at=now, review_count=0,
+                created_at=now))
+            added += 1
+        return {"added": added}
 
     @router.get("/documents/{doc_id}/practice")
     def practice(doc_id: int, conn: sqlite3.Connection = Depends(get_conn)):

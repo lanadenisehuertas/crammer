@@ -114,3 +114,49 @@ def test_record_study_day_is_unique(conn):
     repo.record_study_day(conn, "2026-07-15")
     days = repo.list_study_days(conn)
     assert days == ["2026-07-15", "2026-07-16"]
+
+
+def test_get_module(conn):
+    d = _doc(conn)
+    m = repo.create_module(conn, Module(None, d.id, "M", 0))
+    fetched = repo.get_module(conn, m.id)
+    assert fetched.title == "M"
+    assert repo.get_module(conn, 9999) is None
+
+
+def test_delete_document_cascades_to_cards(conn):
+    d = _doc(conn)
+    m = repo.create_module(conn, Module(None, d.id, "M", 0))
+    repo.add_section(conn, ModuleSection(None, m.id, "H", "C", "from-file", 0))
+    c = repo.create_card(conn, Card(None, d.id, m.id, "flashcard", "Q", "A",
+                                    due_at="2026-07-16T10:00:00", created_at="2026-07-16T09:00:00"))
+    repo.log_review(conn, Review(None, c.id, "2026-07-16T10:05:00", "good"))
+
+    repo.delete_document(conn, d.id)
+
+    assert repo.get_document(conn, d.id) is None
+    assert repo.list_modules(conn, d.id) == []
+    assert repo.list_cards_for_document(conn, d.id) == []
+    assert repo.get_card(conn, c.id) is None
+    assert repo.list_reviews_for_card(conn, c.id) == []
+
+
+def test_update_card_content(conn):
+    d = _doc(conn)
+    m = repo.create_module(conn, Module(None, d.id, "M", 0))
+    c = repo.create_card(conn, Card(None, d.id, m.id, "flashcard", "Q", "A",
+                                    due_at="2026-07-16T10:00:00", created_at="2026-07-16T09:00:00"))
+    repo.update_card_content(conn, c.id, question="Q2", answer="A2", card_type="short-answer")
+    updated = repo.get_card(conn, c.id)
+    assert updated.question == "Q2"
+    assert updated.answer == "A2"
+    assert updated.card_type == "short-answer"
+
+
+def test_delete_card(conn):
+    d = _doc(conn)
+    m = repo.create_module(conn, Module(None, d.id, "M", 0))
+    c = repo.create_card(conn, Card(None, d.id, m.id, "flashcard", "Q", "A",
+                                    due_at="2026-07-16T10:00:00", created_at="2026-07-16T09:00:00"))
+    repo.delete_card(conn, c.id)
+    assert repo.get_card(conn, c.id) is None

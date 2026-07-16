@@ -51,6 +51,12 @@ def set_cheat_sheet(conn: sqlite3.Connection, doc_id: int, cheat_sheet: str) -> 
     conn.commit()
 
 
+def delete_document(conn: sqlite3.Connection, doc_id: int) -> None:
+    """Delete a document. FK cascades remove its modules/sections/cards/reviews."""
+    conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+    conn.commit()
+
+
 def _row_to_module(row: sqlite3.Row) -> Module:
     return Module(id=row["id"], document_id=row["document_id"],
                   title=row["title"], position=row["position"])
@@ -72,6 +78,11 @@ def list_modules(conn: sqlite3.Connection, document_id: int) -> list[Module]:
         (document_id,),
     ).fetchall()
     return [_row_to_module(r) for r in rows]
+
+
+def get_module(conn: sqlite3.Connection, module_id: int) -> Optional[Module]:
+    row = conn.execute("SELECT * FROM modules WHERE id = ?", (module_id,)).fetchone()
+    return _row_to_module(row) if row else None
 
 
 def _row_to_section(row: sqlite3.Row) -> ModuleSection:
@@ -152,6 +163,20 @@ def update_card_schedule(conn: sqlite3.Connection, card_id: int, *, due_at: str,
            review_count = ? WHERE id = ?""",
         (due_at, interval_minutes, ease_factor, review_count, card_id),
     )
+    conn.commit()
+
+
+def update_card_content(conn: sqlite3.Connection, card_id: int, *, question: str,
+                        answer: str, card_type: str) -> None:
+    conn.execute(
+        "UPDATE cards SET question = ?, answer = ?, card_type = ? WHERE id = ?",
+        (question, answer, card_type, card_id),
+    )
+    conn.commit()
+
+
+def delete_card(conn: sqlite3.Connection, card_id: int) -> None:
+    conn.execute("DELETE FROM cards WHERE id = ?", (card_id,))
     conn.commit()
 
 

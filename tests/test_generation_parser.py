@@ -1,4 +1,4 @@
-from reviewer.generation.parser import parse_modules
+from reviewer.generation.parser import parse_cards, parse_modules
 
 
 def test_parses_valid_json():
@@ -66,3 +66,42 @@ def test_trailing_prose_with_stray_brace_does_not_lose_json():
     modules = parse_modules(raw)
     assert len(modules) == 1
     assert modules[0].title == "T"
+
+
+# --- parse_cards --------------------------------------------------------
+
+def test_parse_cards_valid_json():
+    raw = '{"cards":[{"type":"flashcard","question":"Q?","answer":"A."}]}'
+    cards = parse_cards(raw)
+    assert len(cards) == 1
+    assert cards[0].card_type == "flashcard"
+    assert cards[0].question == "Q?"
+    assert cards[0].answer == "A."
+
+
+def test_parse_cards_strips_markdown_fences_and_prose():
+    raw = 'Sure, here you go:\n```json\n{"cards":[{"type":"short-answer","question":"Q","answer":"A"}]}\n```'
+    cards = parse_cards(raw)
+    assert len(cards) == 1
+    assert cards[0].card_type == "short-answer"
+
+
+def test_parse_cards_garbage_returns_empty_list():
+    assert parse_cards("not json at all") == []
+    assert parse_cards("") == []
+    assert parse_cards("{}") == []
+
+
+def test_parse_cards_skips_incomplete_cards():
+    raw = '{"cards":[{"type":"flashcard","question":"","answer":"a"},{"type":"flashcard","question":"q","answer":"a"}]}'
+    cards = parse_cards(raw)
+    assert len(cards) == 1
+    assert cards[0].question == "q"
+
+
+def test_parse_cards_null_cards_is_empty():
+    assert parse_cards('{"cards":null}') == []
+
+
+def test_parse_cards_non_dict_top_level_is_empty():
+    assert parse_cards('[1,2,3]') == []
