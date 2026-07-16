@@ -3,6 +3,8 @@ import { Link, useParams } from "react-router-dom";
 import { Check, X } from "lucide-react";
 import { api, CardOut } from "../lib/api";
 import { Card, Progress } from "../components/ui";
+import { useKeys } from "../lib/useKeys";
+import { ShortcutHints } from "../components/ShortcutHints";
 
 export function PracticePage() {
   const { id } = useParams<{ id: string }>();
@@ -36,6 +38,24 @@ export function PracticePage() {
       setSubmitting(false);
     }
   }
+
+  useKeys(
+    {
+      " ": () => {
+        if (cards && index < cards.length && !revealed) setRevealed(true);
+      },
+      Enter: () => {
+        if (cards && index < cards.length && !revealed) setRevealed(true);
+      },
+      "1": () => {
+        if (revealed) grade(true);
+      },
+      "2": () => {
+        if (revealed) grade(false);
+      },
+    },
+    [cards, index, revealed, submitting],
+  );
 
   if (error) {
     return (
@@ -149,6 +169,17 @@ export function PracticePage() {
           </button>
         </div>
       )}
+
+      <ShortcutHints
+        hints={
+          revealed
+            ? [
+                { keys: "1", label: "Got it" },
+                { keys: "2", label: "Missed it" },
+              ]
+            : [{ keys: "Space", label: "Reveal" }]
+        }
+      />
     </div>
   );
 }
