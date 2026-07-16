@@ -15,11 +15,13 @@ export interface SavedSession<T> {
   data: T;
 }
 
-function storageKey(activity: Activity, docId: number): string {
+type DocKey = number | "all";
+
+function storageKey(activity: Activity, docId: DocKey): string {
   return `crammer:${activity}:${docId}`;
 }
 
-export function saveSession<T>(activity: Activity, docId: number, data: T): void {
+export function saveSession<T>(activity: Activity, docId: DocKey, data: T): void {
   try {
     localStorage.setItem(
       storageKey(activity, docId),
@@ -30,7 +32,7 @@ export function saveSession<T>(activity: Activity, docId: number, data: T): void
   }
 }
 
-export function loadSession<T>(activity: Activity, docId: number): SavedSession<T> | null {
+export function loadSession<T>(activity: Activity, docId: DocKey): SavedSession<T> | null {
   try {
     const raw = localStorage.getItem(storageKey(activity, docId));
     if (!raw) return null;
@@ -42,9 +44,25 @@ export function loadSession<T>(activity: Activity, docId: number): SavedSession<
   }
 }
 
-export function clearSession(activity: Activity, docId: number): void {
+export function clearSession(activity: Activity, docId: DocKey): void {
   try {
     localStorage.removeItem(storageKey(activity, docId));
+  } catch {
+    // ignore
+  }
+}
+
+/** Removes every saved session (any activity) for a specific document — used
+ * when the document itself is deleted so stale sessions don't linger. */
+export function clearAllSessionsForDocument(docId: number): void {
+  try {
+    const suffix = `:${docId}`;
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("crammer:") && key.endsWith(suffix)) keys.push(key);
+    }
+    keys.forEach((key) => localStorage.removeItem(key));
   } catch {
     // ignore
   }

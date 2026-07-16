@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Search, Sparkles } from "lucide-react";
+import { Flame, Plus, Search, Sparkles } from "lucide-react";
 import { api, Overview } from "../lib/api";
 import { GreetingHeader } from "../components/TopHeader";
 import { DocumentCard } from "../components/DocumentCard";
@@ -62,11 +62,39 @@ export function Dashboard() {
       )}
 
       {overview !== null && overview.documents.length > 0 && (
-        <div className="grid gap-4 pb-20 md:grid-cols-2 md:pb-0">
-          {overview.documents.map((doc, i) => (
-            <DocumentCard key={doc.id} doc={doc} index={i} />
-          ))}
-        </div>
+        <>
+          {overview.cards_due_total > 0 ? (
+            <Link
+              to="/study/all"
+              className="mb-4 block rounded-card bg-ink p-6 text-white shadow-soft transition-transform active:scale-[0.99]"
+            >
+              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-white/15">
+                <Flame size={20} />
+              </div>
+              <p className="mb-1 text-lg font-extrabold leading-snug">
+                {overview.cards_due_total} card{overview.cards_due_total === 1 ? "" : "s"} due
+                across your subjects
+              </p>
+              <p className="mb-5 text-sm text-white/70">Clear your whole queue in one session.</p>
+              <span className="inline-flex items-center rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-ink">
+                Study all due
+              </span>
+            </Link>
+          ) : (
+            <div className="mb-4 flex items-center gap-3 rounded-card bg-mint p-5 shadow-soft">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/70 text-ink">
+                <Sparkles size={18} />
+              </div>
+              <p className="text-sm font-bold text-ink">All caught up ✨</p>
+            </div>
+          )}
+
+          <div className="grid gap-4 pb-20 md:grid-cols-2 md:pb-0">
+            {overview.documents.map((doc, i) => (
+              <DocumentCard key={doc.id} doc={doc} index={i} />
+            ))}
+          </div>
+        </>
       )}
 
       <Link

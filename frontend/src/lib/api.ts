@@ -28,6 +28,7 @@ export interface ModuleOut {
   finished: boolean;
   cards_count: number;
   sections: SectionOut[];
+  cards: CardOut[];
 }
 
 export interface DocDetail extends DocSummary {
@@ -39,6 +40,7 @@ export interface DocDetail extends DocSummary {
 
 export interface CardOut {
   id: number;
+  document_id: number;
   module_id: number;
   card_type: string;
   question: string;
@@ -120,13 +122,44 @@ export const api = {
   generateDocument: (id: number) =>
     request<{ ok: true }>(`/documents/${id}/generate`, { method: "POST" }),
 
+  deleteDocument: (id: number) =>
+    request<{ ok: true }>(`/documents/${id}`, { method: "DELETE" }),
+
   queue: (id: number, mode: QueueMode) =>
     request<{ cards: CardOut[] }>(`/documents/${id}/queue?mode=${mode}`),
+
+  globalQueue: (mode: QueueMode) => request<{ cards: CardOut[] }>(`/queue?mode=${mode}`),
 
   review: (cardId: number, rating: Rating) =>
     request<{ ok: true }>("/review", {
       method: "POST",
       body: JSON.stringify({ card_id: cardId, rating }),
+    }),
+
+  createCard: (
+    docId: number,
+    body: { module_id: number; question: string; answer: string; card_type: string },
+  ) =>
+    request<CardOut>(`/documents/${docId}/cards`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateCard: (
+    cardId: number,
+    patch: { question?: string; answer?: string; card_type?: string },
+  ) =>
+    request<CardOut>(`/cards/${cardId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  deleteCard: (cardId: number) =>
+    request<{ ok: true }>(`/cards/${cardId}`, { method: "DELETE" }),
+
+  moreCards: (docId: number, moduleId: number) =>
+    request<{ added: number }>(`/documents/${docId}/modules/${moduleId}/more-cards`, {
+      method: "POST",
     }),
 
   practice: (id: number) => request<{ cards: CardOut[] }>(`/documents/${id}/practice`),
