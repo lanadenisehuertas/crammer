@@ -1,0 +1,35 @@
+import base64
+
+import anthropic
+
+_OCR_INSTRUCTION = (
+    "Transcribe all text visible in this image exactly as written, preserving "
+    "reading order. If the image contains a diagram or chart, briefly describe it "
+    "in square brackets. Output only the transcription, with no preamble."
+)
+
+
+class ClaudeClient:
+    """Thin wrapper over the Anthropic SDK for the reviewer app."""
+
+    def __init__(self, api_key: str, model: str, sdk=None):
+        # `sdk` lets tests inject a fake; production uses the real client.
+        self._client = sdk or anthropic.Anthropic(api_key=api_key)
+        self._model = model
+
+    def ocr_image(self, image_bytes: bytes, media_type: str) -> str:
+        """Return the text Claude reads from an image."""
+        data = base64.standard_b64encode(image_bytes).decode("utf-8")
+        message = self._client.messages.create(
+            model=self._model,
+            max_tokens=4000,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {
+                        "type": "base64", "media_type": media_type, "data": data}},
+                    {"type": "text", "text": _OCR_INSTRUCTION},
+                ],
+            }],
+        )
+        return "".join(b.text for b in message.content if b.type == "text").strip()

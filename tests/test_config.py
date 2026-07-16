@@ -21,3 +21,15 @@ def test_load_config_missing_api_key_raises(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     with pytest.raises(ConfigError):
         load_config()
+
+
+def test_load_config_default_model(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.delenv("REVIEWER_MODEL", raising=False)
+    assert load_config().model == "claude-opus-4-7"
+
+
+def test_load_config_custom_model(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("REVIEWER_MODEL", "claude-haiku-4-5")
+    assert load_config().model == "claude-haiku-4-5"

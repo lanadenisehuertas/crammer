@@ -14,6 +14,7 @@ class ConfigError(Exception):
 class Config:
     anthropic_api_key: str
     db_path: str
+    model: str
 
 
 def load_config() -> Config:
@@ -23,4 +24,5 @@ def load_config() -> Config:
             "ANTHROPIC_API_KEY is not set. Copy .env.example to .env and add your key."
         )
     db_path = os.environ.get("REVIEWER_DB_PATH") or "reviewer.sqlite3"
-    return Config(anthropic_api_key=api_key, db_path=db_path)
+    model = os.environ.get("REVIEWER_MODEL") or "claude-opus-4-7"
+    return Config(anthropic_api_key=api_key, db_path=db_path, model=model)
