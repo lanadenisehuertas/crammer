@@ -1,6 +1,7 @@
 import { ReactNode, useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  AlertTriangle,
   ArrowLeft,
   Bookmark,
   Check,
@@ -10,6 +11,7 @@ import {
   Keyboard,
   Layers,
   ListChecks,
+  Loader2,
   Shuffle,
   Sparkles,
   Target,
@@ -17,7 +19,7 @@ import {
 import { api, DocDetail } from "../lib/api";
 import { StatsRow } from "../components/StatsRow";
 import { OriginBadge } from "../components/OriginBadge";
-import { Card } from "../components/ui";
+import { Button, Card } from "../components/ui";
 import { cn } from "../lib/cn";
 
 function ReviewModeTile({
@@ -57,6 +59,8 @@ export function DocumentPage() {
   const [examOpen, setExamOpen] = useState(false);
   const [examDate, setExamDate] = useState("");
   const [copied, setCopied] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api
@@ -79,6 +83,19 @@ export function DocumentPage() {
       load();
     } catch (e) {
       setError((e as Error).message ?? "Could not save the exam date.");
+    }
+  }
+
+  async function retryGeneration() {
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      await api.generateDocument(docId);
+      load();
+    } catch (e) {
+      setRetryError((e as Error).message ?? "Could not retry generation.");
+    } finally {
+      setRetrying(false);
     }
   }
 
@@ -199,7 +216,25 @@ export function DocumentPage() {
           );
         })}
         {doc.modules.length === 0 && (
-          <Card className="p-6 text-center text-sm text-muted">No modules yet.</Card>
+          <Card className="p-6">
+            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-amber-200 text-amber-800">
+              <AlertTriangle size={18} />
+            </div>
+            <h3 className="mb-1 text-base font-bold text-ink">Generation didn&apos;t finish</h3>
+            <p className="mb-4 text-sm text-muted">
+              Your notes are saved, but Crammer couldn&apos;t generate the reviewer for them.
+              Fix the issue below if there is one, then retry — nothing was lost.
+            </p>
+            {retryError && (
+              <div className="mb-4 rounded-card bg-red-50 p-4 text-sm font-medium text-red-700">
+                {retryError}
+              </div>
+            )}
+            <Button variant="pill-dark" onClick={retryGeneration} disabled={retrying}>
+              {retrying && <Loader2 size={16} className="animate-spin" />}
+              {retrying ? "Retrying…" : "Retry generation"}
+            </Button>
+          </Card>
         )}
       </div>
 

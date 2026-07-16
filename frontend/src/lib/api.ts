@@ -117,6 +117,9 @@ export const api = {
     });
   },
 
+  generateDocument: (id: number) =>
+    request<{ ok: true }>(`/documents/${id}/generate`, { method: "POST" }),
+
   queue: (id: number, mode: QueueMode) =>
     request<{ cards: CardOut[] }>(`/documents/${id}/queue?mode=${mode}`),
 
