@@ -32,4 +32,4 @@ def weak_spot_cards(conn: sqlite3.Connection, document_id: int,
         (document_id,),
     ).fetchall()
     cards = [repo.get_card(conn, row["card_id"]) for row in rows]
-    return cards[:limit] if limit else cards
+    return cards[:limit] if limit is not None else cards

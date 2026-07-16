@@ -41,3 +41,10 @@ def test_weak_spot_cards_ranks_by_again_and_hard(conn):
     repo.log_review(conn, Review(None, cards[1].id, "2026-07-16T10:00:00", "again"))
     weak = weak_spot_cards(conn, d.id)
     assert weak[0].id == cards[0].id
+
+
+def test_weak_spot_cards_limit_zero_returns_empty(conn):
+    d, cards = _doc_with_cards(conn, ["t"])
+    repo.log_review(conn, Review(None, cards[0].id, "2026-07-16T10:00:00", "again"))
+    # limit=0 must return no cards, not all cards.
+    assert weak_spot_cards(conn, d.id, limit=0) == []

@@ -23,6 +23,8 @@ def next_schedule(*, interval_minutes: int, ease_factor: float, review_count: in
                   rating: str, now: datetime,
                   max_interval_minutes: int = MAX_INTERVAL_MINUTES) -> ScheduleResult:
     """Compute the next schedule for a card given a recall rating."""
+    if rating not in ("again", "hard", "good", "easy"):
+        raise ValueError(f"Unknown rating: {rating}")
     if review_count == 0:
         new_interval = _NEW_INTERVALS[rating]
         new_ease = ease_factor
@@ -33,7 +35,7 @@ def next_schedule(*, interval_minutes: int, ease_factor: float, review_count: in
         new_interval = round(interval_minutes * 1.2)
         new_ease = _clamp_ease(ease_factor - 0.15)
     elif rating == "good":
-        new_ease = _clamp_ease(ease_factor)
+        new_ease = ease_factor  # good does not change ease
         new_interval = round(interval_minutes * new_ease)
     elif rating == "easy":
         new_ease = _clamp_ease(ease_factor + 0.15)

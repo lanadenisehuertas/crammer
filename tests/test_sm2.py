@@ -1,5 +1,6 @@
 # tests/test_sm2.py
 from datetime import datetime
+import pytest
 from reviewer.scheduler.sm2 import next_schedule, MAX_INTERVAL_MINUTES
 
 NOW = datetime(2026, 7, 16, 9, 0, 0)
@@ -50,3 +51,15 @@ def test_due_at_is_now_plus_interval_iso():
     r = next_schedule(interval_minutes=0, ease_factor=2.5, review_count=0,
                       rating="good", now=NOW)
     assert r.due_at == datetime(2026, 7, 16, 10, 0, 0).isoformat(timespec="seconds")
+
+
+def test_bogus_rating_on_new_card_raises_value_error():
+    with pytest.raises(ValueError):
+        next_schedule(interval_minutes=0, ease_factor=2.5, review_count=0,
+                      rating="bogus", now=NOW)
+
+
+def test_bogus_rating_on_established_card_raises_value_error():
+    with pytest.raises(ValueError):
+        next_schedule(interval_minutes=60, ease_factor=2.5, review_count=2,
+                      rating="bogus", now=NOW)
