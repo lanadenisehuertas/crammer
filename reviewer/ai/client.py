@@ -9,6 +9,11 @@ _OCR_INSTRUCTION = (
 )
 
 
+def _text_from(message) -> str:
+    """Concatenate and strip the text blocks of a Claude message response."""
+    return "".join(b.text for b in message.content if b.type == "text").strip()
+
+
 class ClaudeClient:
     """Thin wrapper over the Anthropic SDK for the reviewer app."""
 
@@ -32,7 +37,7 @@ class ClaudeClient:
                 ],
             }],
         )
-        return "".join(b.text for b in message.content if b.type == "text").strip()
+        return _text_from(message)
 
     def generate_text(self, system: str, user: str, max_tokens: int = 16000) -> str:
         """Return Claude's text response to a system + user prompt."""
@@ -42,4 +47,4 @@ class ClaudeClient:
             system=system,
             messages=[{"role": "user", "content": user}],
         )
-        return "".join(b.text for b in message.content if b.type == "text").strip()
+        return _text_from(message)
