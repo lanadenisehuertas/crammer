@@ -50,6 +50,28 @@ def create_app(conn_factory, client) -> FastAPI:
         }
         return templates.TemplateResponse(request, "dashboard.html", ctx)
 
+    @app.post("/upload")
+    async def upload(request: Request, conn: sqlite3.Connection = Depends(get_conn),
+                     file: UploadFile = File(default=None),
+                     text: str = Form(default=""),
+                     title: str = Form(default="")):
+        try:
+            if file is not None and file.filename:
+                data = await file.read()
+                doc, parsed = ingest_file(conn, file.filename, data, client.ocr_image)
+            elif text.strip():
+                doc, parsed = ingest_text(conn, title.strip() or "Pasted notes", text)
+            else:
+                return _error(request, "Please upload a file or paste some text.")
+        except UnsupportedFileType as e:
+            return _error(request, str(e))
+        except EmptyContentError as e:
+            return _error(request, str(e))
+
+        build_and_store(conn, client, doc.id, doc.extracted_text,
+                        flashcard_pairs=parsed.flashcard_pairs)
+        return RedirectResponse(f"/document/{doc.id}", status_code=303)
+
     # further routes added in later tasks
 
     app.state.conn_factory = conn_factory
