@@ -120,6 +120,29 @@ def create_app(conn_factory, client) -> FastAPI:
             return RedirectResponse(f"/study/{doc_id}", status_code=303)
         return RedirectResponse(f"/session/{doc_id}/{mode}?i={index + 1}", status_code=303)
 
+    @app.get("/session/{doc_id}/{mode}", response_class=HTMLResponse)
+    def session(doc_id: int, mode: str, request: Request, i: int = 0, reveal: int = 0,
+                conn: sqlite3.Connection = Depends(get_conn)):
+        doc = repo.get_document(conn, doc_id)
+        if doc is None:
+            return _error(request, "That document does not exist.", status=404)
+        if mode == "cram":
+            cards = cram_cards(conn, doc_id)
+        elif mode == "weak":
+            cards = weak_spot_cards(conn, doc_id)
+        else:
+            return _error(request, "Unknown study mode.", status=404)
+
+        if not cards:
+            msg = "No weak spots yet — keep studying!" if mode == "weak" else "No cards yet."
+            return templates.TemplateResponse(
+                request, "done.html", {"doc": doc, "message": msg})
+        if i >= len(cards):
+            return templates.TemplateResponse(
+                request, "done.html", {"doc": doc, "message": "Session complete!"})
+        return render_card(request, doc, cards[i], mode, bool(reveal),
+                           index=i, total=len(cards))
+
     # further routes added in later tasks
 
     app.state.conn_factory = conn_factory
