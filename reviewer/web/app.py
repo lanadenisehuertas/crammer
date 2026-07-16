@@ -3,8 +3,11 @@ from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Query, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from reviewer import repository as repo
 from reviewer.schema import init_db
@@ -16,12 +19,16 @@ from reviewer.scheduler.selection import cram_cards, due_cards, weak_spot_cards
 from reviewer.progress.mastery import document_mastery, module_finished
 from reviewer.progress.stats import dashboard_stats
 from reviewer.practice.test import build_practice_test, score
+from reviewer.web.api import build_api_router
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
 def create_app(conn_factory, client) -> FastAPI:
     app = FastAPI(title="Crammer")
+    app.add_middleware(CORSMiddleware,
+                       allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+                       allow_methods=["*"], allow_headers=["*"])
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
     startup_conn = conn_factory()
     try:
@@ -180,4 +187,25 @@ def create_app(conn_factory, client) -> FastAPI:
         repo.set_exam_date(conn, doc_id, exam_date.strip() or None)
         return RedirectResponse(f"/document/{doc_id}", status_code=303)
 
+    app.include_router(build_api_router(get_conn, client), prefix="/api")
+
+    dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    if dist.is_dir():
+        app.mount("/app", _SPAStaticFiles(directory=str(dist), html=True), name="spa")
+
     return app
+
+
+class _SPAStaticFiles(StaticFiles):
+    """Static files that fall back to index.html so SPA deep links survive refresh."""
+
+    async def get_response(self, path: str, scope):
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            return await super().get_response("index.html", scope)
+        if response.status_code == 404:
+            response = await super().get_response("index.html", scope)
+        return response

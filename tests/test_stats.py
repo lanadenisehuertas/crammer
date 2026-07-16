@@ -2,7 +2,7 @@
 from datetime import datetime, date
 from reviewer import repository as repo
 from reviewer.models import Document, Module, Card, Review
-from reviewer.progress.stats import dashboard_stats
+from reviewer.progress.stats import dashboard_stats, reviews_by_day
 
 NOW = datetime(2026, 7, 16, 12, 0, 0)
 TODAY = date(2026, 7, 16)
@@ -27,3 +27,23 @@ def test_dashboard_stats(conn):
     assert stats["reviews_today"] == 1
     assert stats["reviews_all_time"] == 2
     assert stats["streak"] == 1
+
+
+def test_reviews_by_day_zero_fills_and_orders(conn):
+    d = repo.create_document(conn, Document(None, "D", "text", "t", "s"))
+    m = repo.create_module(conn, Module(None, d.id, "M", 0))
+    c1 = repo.create_card(conn, Card(None, d.id, m.id, "flashcard", "Q1", "A1",
+                                     due_at="2026-07-16T11:00:00", created_at="t"))
+    c2 = repo.create_card(conn, Card(None, d.id, m.id, "flashcard", "Q2", "A2",
+                                     due_at="2026-07-16T13:00:00", created_at="t"))
+    repo.log_review(conn, Review(None, c1.id, "2026-07-16T10:00:00", "good"))
+    repo.log_review(conn, Review(None, c1.id, "2026-07-16T11:30:00", "good"))
+    repo.log_review(conn, Review(None, c2.id, "2026-07-14T09:00:00", "good"))
+
+    days = reviews_by_day(conn, days=7, today=TODAY)
+    assert len(days) == 7
+    assert days[-1] == ("2026-07-16", 2)
+    assert days[-3] == ("2026-07-14", 1)
+    assert days[0] == ("2026-07-10", 0)
+    isos = [d for d, _ in days]
+    assert isos == sorted(isos)
