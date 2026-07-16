@@ -5,6 +5,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { DocumentPage } from "./pages/DocumentPage";
 import { StudyPage } from "./pages/StudyPage";
 import { PracticePage } from "./pages/PracticePage";
+import { QuizPage } from "./pages/QuizPage";
 import { StatisticsPage } from "./pages/StatisticsPage";
 import { SchedulePage } from "./pages/SchedulePage";
 import { UploadPage } from "./pages/UploadPage";
@@ -21,6 +22,7 @@ export const router = createBrowserRouter(
         { path: "/document/:id", element: <DocumentPage /> },
         { path: "/study/:id", element: <StudyPage /> },
         { path: "/practice/:id", element: <PracticePage /> },
+        { path: "/quiz/:id", element: <QuizPage /> },
         { path: "/statistics", element: <StatisticsPage /> },
         { path: "/schedule", element: <SchedulePage /> },
         { path: "/upload", element: <UploadPage /> },
