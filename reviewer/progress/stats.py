@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from reviewer import repository as repo
 from reviewer.progress.mastery import document_mastery
@@ -34,3 +34,16 @@ def dashboard_stats(conn: sqlite3.Connection, document_id: int,
         "streak": current_streak(conn, today=today),
         "longest_streak": longest_streak(conn),
     }
+
+
+def reviews_by_day(conn: sqlite3.Connection, days: int = 7,
+                   today: date | None = None) -> list[tuple[str, int]]:
+    """(iso-date, review count) for the last `days` days, oldest first, zero-filled."""
+    today = today or date.today()
+    counts = {row["d"]: row["n"] for row in conn.execute(
+        "SELECT substr(rated_at, 1, 10) AS d, COUNT(*) AS n FROM reviews GROUP BY d")}
+    out = []
+    for i in range(days - 1, -1, -1):
+        day = (today - timedelta(days=i)).isoformat()
+        out.append((day, counts.get(day, 0)))
+    return out
