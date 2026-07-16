@@ -143,6 +143,24 @@ def create_app(conn_factory, client) -> FastAPI:
         return render_card(request, doc, cards[i], mode, bool(reveal),
                            index=i, total=len(cards))
 
+    @app.get("/practice/{doc_id}", response_class=HTMLResponse)
+    def practice(doc_id: int, request: Request, i: int = 0, reveal: int = 0,
+                 correct: int = 0, conn: sqlite3.Connection = Depends(get_conn)):
+        doc = repo.get_document(conn, doc_id)
+        if doc is None:
+            return _error(request, "That document does not exist.", status=404)
+        cards = build_practice_test(conn, document_id=doc_id)
+        if not cards:
+            return templates.TemplateResponse(
+                request, "done.html", {"doc": doc, "message": "No cards to test yet."})
+        if i >= len(cards):
+            result = score([True] * correct + [False] * (len(cards) - correct))
+            return templates.TemplateResponse(
+                request, "score.html", {"doc": doc, "result": result})
+        ctx = {"doc": doc, "card": cards[i], "index": i,
+               "total": len(cards), "reveal": bool(reveal), "correct": correct}
+        return templates.TemplateResponse(request, "practice.html", ctx)
+
     # further routes added in later tasks
 
     app.state.conn_factory = conn_factory

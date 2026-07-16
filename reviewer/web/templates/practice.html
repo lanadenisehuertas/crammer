@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Practice — {{ doc.title }}{% endblock %}
+{% block content %}
+  <div class="card">
+    <p class="muted">{{ doc.title }} · question {{ index + 1 }} of {{ total }}</p>
+    <h2>{{ card.question }}</h2>
+    {% if not reveal %}
+      <a class="btn" href="/practice/{{ doc.id }}?i={{ index }}&reveal=1&correct={{ correct }}">
+        Show answer</a>
+    {% else %}
+      <div class="card" style="background:#0d0f15;">{{ card.answer }}</div>
+      <p>How did you do?</p>
+      <a class="btn" href="/practice/{{ doc.id }}?i={{ index + 1 }}&correct={{ correct + 1 }}">Correct</a>
+      <a class="btn secondary" href="/practice/{{ doc.id }}?i={{ index + 1 }}&correct={{ correct }}">Incorrect</a>
+    {% endif %}
+  </div>
+{% endblock %}
