@@ -161,6 +161,15 @@ def create_app(conn_factory, client) -> FastAPI:
                "total": len(cards), "reveal": bool(reveal), "correct": correct}
         return templates.TemplateResponse(request, "practice.html", ctx)
 
+    @app.post("/document/{doc_id}/exam-date")
+    def set_exam_date(doc_id: int, request: Request,
+                      exam_date: str = Form(""),
+                      conn: sqlite3.Connection = Depends(get_conn)):
+        if repo.get_document(conn, doc_id) is None:
+            return _error(request, "That document does not exist.", status=404)
+        repo.set_exam_date(conn, doc_id, exam_date.strip() or None)
+        return RedirectResponse(f"/document/{doc_id}", status_code=303)
+
     # further routes added in later tasks
 
     app.state.conn_factory = conn_factory
