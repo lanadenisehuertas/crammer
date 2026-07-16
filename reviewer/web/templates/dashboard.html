@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="card">
+    <div class="streak">🔥 {{ streak }} day{{ '' if streak == 1 else 's' }}</div>
+    <div class="muted">Longest streak: {{ longest }} days</div>
+  </div>
+
+  <div class="card">
+    <h3>Add study material</h3>
+    <form action="/upload" method="post" enctype="multipart/form-data">
+      <label>Upload a file (PDF, DOCX, PPTX, image, CSV, XLSX, HTML, EPUB, TXT, MD, RTF)</label>
+      <input type="file" name="file">
+      <label>…or paste text</label>
+      <textarea name="text" rows="4" placeholder="Paste notes here"></textarea>
+      <label>Title (optional, for pasted text)</label>
+      <input type="text" name="title" placeholder="My notes">
+      <p><button class="btn" type="submit">Generate reviewer</button></p>
+      <p class="muted">Generating uses the Claude API and may take a moment.</p>
+    </form>
+  </div>
+
+  <h3>Your material</h3>
+  {% if not documents %}
+    <p class="muted">Nothing yet — upload something above to get started.</p>
+  {% endif %}
+  {% for item in documents %}
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <a class="btn secondary" href="/document/{{ item.doc.id }}">{{ item.doc.title }}</a>
+        <span class="muted">{{ item.finished }}/{{ item.total }} topics mastered</span>
+      </div>
+      {% if item.total %}
+        <div class="bar" style="margin-top:12px;">
+          <span style="width: {{ (100 * item.finished / item.total) | round }}%;"></span>
+        </div>
+      {% endif %}
+    </div>
+  {% endfor %}
+{% endblock %}
