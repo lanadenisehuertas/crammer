@@ -2,6 +2,7 @@ import random
 import sqlite3
 from datetime import date, datetime
 
+import anthropic
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
@@ -29,6 +30,27 @@ class ReviewBody(BaseModel):
 
 class ExamDateBody(BaseModel):
     exam_date: str | None = None
+
+
+def _claude_api_http_error(e: anthropic.APIError) -> HTTPException:
+    """Map an Anthropic SDK error to a 502 with a student-friendly message."""
+    message = getattr(e, "message", None) or str(e)
+    if "credit balance" in message.lower():
+        detail = (
+            "Your Anthropic account is out of credits, so Crammer can't generate "
+            "right now. Add credits at console.anthropic.com → Plans & Billing, "
+            "then press Retry. (Tip: REVIEWER_MODEL=claude-haiku-4-5 in your .env "
+            "is the cheapest model.)"
+        )
+    elif isinstance(e, anthropic.AuthenticationError):
+        detail = "Your API key was rejected. Check ANTHROPIC_API_KEY in your .env file."
+    elif isinstance(e, anthropic.APIConnectionError):
+        detail = "Couldn't reach the Claude API. Check your internet connection and try again."
+    elif isinstance(e, anthropic.RateLimitError):
+        detail = "The Claude API is rate-limiting requests. Wait a minute and try again."
+    else:
+        detail = f"The Claude API returned an error: {message}"
+    return HTTPException(502, detail)
 
 
 def _mastery_pct(finished: int, total: int) -> int:
@@ -121,8 +143,13 @@ def build_api_router(get_conn, client) -> APIRouter:
             doc, parsed = ingest_text(conn, body.title.strip() or "Pasted notes", body.text)
         except EmptyContentError as e:
             raise HTTPException(400, str(e))
-        build_and_store(conn, client, doc.id, doc.extracted_text,
-                        flashcard_pairs=parsed.flashcard_pairs)
+        # The document row already exists at this point (intentionally): if
+        # generation fails the pasted text is safe and can be retried later.
+        try:
+            build_and_store(conn, client, doc.id, doc.extracted_text,
+                            flashcard_pairs=parsed.flashcard_pairs)
+        except anthropic.APIError as e:
+            raise _claude_api_http_error(e)
         return {"document_id": doc.id}
 
     @router.post("/upload")
@@ -135,9 +162,29 @@ def build_api_router(get_conn, client) -> APIRouter:
             raise HTTPException(400, str(e))
         except EmptyContentError as e:
             raise HTTPException(400, str(e))
-        build_and_store(conn, client, doc.id, doc.extracted_text,
-                        flashcard_pairs=parsed.flashcard_pairs)
+        except anthropic.APIError as e:  # OCR of an image can hit the API too
+            raise _claude_api_http_error(e)
+        # The document row already exists at this point (intentionally): if
+        # generation fails the extracted text is safe and can be retried later.
+        try:
+            build_and_store(conn, client, doc.id, doc.extracted_text,
+                            flashcard_pairs=parsed.flashcard_pairs)
+        except anthropic.APIError as e:
+            raise _claude_api_http_error(e)
         return {"document_id": doc.id}
+
+    @router.post("/documents/{doc_id}/generate")
+    def generate(doc_id: int, conn: sqlite3.Connection = Depends(get_conn)):
+        doc = repo.get_document(conn, doc_id)
+        if doc is None:
+            raise HTTPException(404, "That document does not exist.")
+        if repo.list_modules(conn, doc_id):
+            raise HTTPException(400, "This document already has a generated reviewer.")
+        try:
+            build_and_store(conn, client, doc_id, doc.extracted_text)
+        except anthropic.APIError as e:
+            raise _claude_api_http_error(e)
+        return {"ok": True}
 
     @router.get("/documents/{doc_id}/queue")
     def queue(doc_id: int, mode: str = "due", conn: sqlite3.Connection = Depends(get_conn)):

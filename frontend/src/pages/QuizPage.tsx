@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { CheckCircle2, PartyPopper, XCircle } from "lucide-react";
 import { api, CardOut } from "../lib/api";
@@ -8,6 +8,8 @@ import { useKeys } from "../lib/useKeys";
 import { shuffle } from "../lib/shuffle";
 import { ShortcutHints } from "../components/ShortcutHints";
 import { SessionEndCard } from "../components/SessionEndCard";
+import { ResumeCard } from "../components/ResumeCard";
+import { clearSession, loadSession, saveSession } from "../lib/sessionStore";
 import { cn } from "../lib/cn";
 
 const MIN_OPTIONS = 2;
@@ -25,11 +27,28 @@ function buildOptions(card: CardOut, allCards: CardOut[]): string[] {
   return shuffle([card.answer, ...distractors]);
 }
 
+interface QuizSave {
+  order: number[];
+  index: number;
+  correctCount: number;
+  missed: { cardId: number; chosen: string }[];
+}
+
+interface PendingResume {
+  savedAt: number;
+  cards: CardOut[];
+  index: number;
+  correctCount: number;
+  missed: { card: CardOut; chosen: string }[];
+}
+
 export function QuizPage() {
   const { id } = useParams<{ id: string }>();
   const docId = Number(id);
-  const { cards, error } = useReviewQueue(docId, "cram");
+  const { cards: fetched, error } = useReviewQueue(docId, "cram");
 
+  const [pending, setPending] = useState<PendingResume | null>(null);
+  const [cards, setCards] = useState<CardOut[] | null>(null);
   const [index, setIndex] = useState(0);
   const [shuffleSeed, setShuffleSeed] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
@@ -37,6 +56,74 @@ export function QuizPage() {
   const [missed, setMissed] = useState<{ card: CardOut; chosen: string }[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!fetched) return;
+    if (fetched.length < MIN_OPTIONS) {
+      setCards(fetched);
+      return;
+    }
+    const byId = new Map(fetched.map((c) => [c.id, c]));
+    const saved = loadSession<QuizSave>("quiz", docId);
+    if (saved) {
+      const order = saved.data.order.filter((cardId) => byId.has(cardId));
+      const savedIndex = Math.min(saved.data.index, order.length);
+      if (savedIndex > 0 && savedIndex < order.length) {
+        setPending({
+          savedAt: saved.savedAt,
+          cards: order.map((cardId) => byId.get(cardId)!),
+          index: savedIndex,
+          correctCount: saved.data.correctCount,
+          missed: saved.data.missed
+            .filter((m) => byId.has(m.cardId))
+            .map((m) => ({ card: byId.get(m.cardId)!, chosen: m.chosen })),
+        });
+        return;
+      }
+      clearSession("quiz", docId);
+    }
+    setCards(fetched);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetched, docId]);
+
+  // Autosave: a card counts as answered once an option is selected, so a
+  // resume never re-asks a question that was already graded.
+  useEffect(() => {
+    if (!cards || cards.length < MIN_OPTIONS) return;
+    const effIndex = selected !== null ? index + 1 : index;
+    if (effIndex >= cards.length) {
+      clearSession("quiz", docId);
+      return;
+    }
+    if (effIndex === 0) return;
+    saveSession<QuizSave>("quiz", docId, {
+      order: cards.map((c) => c.id),
+      index: effIndex,
+      correctCount,
+      missed: missed.map((m) => ({ cardId: m.card.id, chosen: m.chosen })),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cards, index, selected, correctCount, missed]);
+
+  function resume() {
+    if (!pending) return;
+    setCards(pending.cards);
+    setIndex(pending.index);
+    setCorrectCount(pending.correctCount);
+    setMissed(pending.missed);
+    setSelected(null);
+    setPending(null);
+  }
+
+  function startOver() {
+    clearSession("quiz", docId);
+    setPending(null);
+    setCards(fetched ?? []);
+    setIndex(0);
+    setCorrectCount(0);
+    setMissed([]);
+    setSelected(null);
+  }
 
   const card = cards && index < cards.length ? cards[index] : null;
 
@@ -70,6 +157,7 @@ export function QuizPage() {
   }
 
   function retry() {
+    clearSession("quiz", docId);
     setIndex(0);
     setSelected(null);
     setCorrectCount(0);
@@ -80,14 +168,31 @@ export function QuizPage() {
 
   useKeys(
     {
-      "1": () => choose(0),
-      "2": () => choose(1),
-      "3": () => choose(2),
-      "4": () => choose(3),
-      " ": () => advance(),
-      Enter: () => advance(),
+      "1": () => {
+        if (!pending) choose(0);
+      },
+      "2": () => {
+        if (!pending) choose(1);
+      },
+      "3": () => {
+        if (!pending) choose(2);
+      },
+      "4": () => {
+        if (!pending) choose(3);
+      },
+      " ": () => {
+        if (!pending) advance();
+      },
+      Enter: () => {
+        // Guard: while the resume prompt is up, Enter only resumes.
+        if (pending) {
+          resume();
+          return;
+        }
+        advance();
+      },
     },
-    [card?.id, selected, options, submitting],
+    [pending, card?.id, selected, options, submitting],
   );
 
   if (error || runError) {
@@ -98,6 +203,21 @@ export function QuizPage() {
           Back to document
         </Link>
       </Card>
+    );
+  }
+
+  if (fetched === null) {
+    return <div className="h-64 animate-pulse rounded-card bg-white/60" />;
+  }
+
+  if (pending) {
+    return (
+      <ResumeCard
+        progressLine={`${pending.index} of ${pending.cards.length} done`}
+        savedAt={pending.savedAt}
+        onResume={resume}
+        onStartOver={startOver}
+      />
     );
   }
 

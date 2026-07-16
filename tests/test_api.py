@@ -1,3 +1,5 @@
+import anthropic
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from reviewer.db import connect
@@ -6,12 +8,16 @@ from reviewer import repository as repo
 from tests.test_web_upload import FakeClient
 
 
-@pytest.fixture
-def ctx(tmp_path):
+def _make_ctx(tmp_path, ai_client=None):
     db_path = str(tmp_path / "t.sqlite3")
     factory = lambda: connect(db_path, check_same_thread=False)
-    app = create_app(factory, FakeClient())
+    app = create_app(factory, ai_client or FakeClient())
     return TestClient(app, follow_redirects=False), factory
+
+
+@pytest.fixture
+def ctx(tmp_path):
+    return _make_ctx(tmp_path)
 
 
 def _paste(client, text="some notes", title="Bio"):
@@ -199,3 +205,135 @@ def test_schedule_lists_study_day_and_exam(ctx):
     assert len(body["exams"]) == 1
     assert body["exams"][0]["document_id"] == doc_id
     assert body["exams"][0]["exam_date"] == "2099-01-01"
+
+
+# --- Claude API failure handling + retry ------------------------------------
+
+def _api_request():
+    return httpx.Request("POST", "https://api.anthropic.com")
+
+
+def _api_response(status):
+    return httpx.Response(status, request=_api_request())
+
+
+def _credit_error():
+    return anthropic.BadRequestError(
+        "Your credit balance is too low to access the Anthropic API.",
+        response=_api_response(400), body=None)
+
+
+class FailingClient(FakeClient):
+    """Fake whose generation raises a given Anthropic SDK error until unset."""
+
+    def __init__(self, exc):
+        self.exc = exc
+
+    def generate_text(self, system, user, max_tokens=16000):
+        if self.exc is not None:
+            raise self.exc
+        return super().generate_text(system, user, max_tokens)
+
+
+def test_paste_credit_error_502_keeps_document(tmp_path):
+    client, factory = _make_ctx(tmp_path, FailingClient(_credit_error()))
+    r = _paste(client)
+    assert r.status_code == 502
+    detail = r.json()["detail"]
+    assert "credit" in detail.lower()
+    # The document row survives with 0 modules so generation can be retried.
+    conn = factory()
+    docs = repo.list_documents(conn)
+    assert len(docs) == 1
+    assert repo.list_modules(conn, docs[0].id) == []
+
+
+def test_paste_auth_error_502(tmp_path):
+    exc = anthropic.AuthenticationError(
+        "invalid x-api-key", response=_api_response(401), body=None)
+    client, factory = _make_ctx(tmp_path, FailingClient(exc))
+    r = _paste(client)
+    assert r.status_code == 502
+    assert "API key" in r.json()["detail"]
+
+
+def test_paste_connection_error_502(tmp_path):
+    exc = anthropic.APIConnectionError(request=_api_request())
+    client, factory = _make_ctx(tmp_path, FailingClient(exc))
+    r = _paste(client)
+    assert r.status_code == 502
+    assert "internet connection" in r.json()["detail"]
+
+
+def test_paste_rate_limit_error_502(tmp_path):
+    exc = anthropic.RateLimitError(
+        "rate limited", response=_api_response(429), body=None)
+    client, factory = _make_ctx(tmp_path, FailingClient(exc))
+    r = _paste(client)
+    assert r.status_code == 502
+    assert "rate-limiting" in r.json()["detail"]
+
+
+def test_paste_other_api_error_502_includes_message(tmp_path):
+    exc = anthropic.InternalServerError(
+        "Overloaded", response=_api_response(500), body=None)
+    client, factory = _make_ctx(tmp_path, FailingClient(exc))
+    r = _paste(client)
+    assert r.status_code == 502
+    assert "The Claude API returned an error" in r.json()["detail"]
+    assert "Overloaded" in r.json()["detail"]
+
+
+def test_upload_credit_error_502_keeps_document(tmp_path):
+    client, factory = _make_ctx(tmp_path, FailingClient(_credit_error()))
+    r = client.post("/api/upload",
+                    files={"file": ("notes.txt", b"the cold war", "text/plain")})
+    assert r.status_code == 502
+    assert "credit" in r.json()["detail"].lower()
+    conn = factory()
+    docs = repo.list_documents(conn)
+    assert len(docs) == 1
+    assert repo.list_modules(conn, docs[0].id) == []
+
+
+def test_generate_retry_succeeds_after_failure(tmp_path):
+    ai = FailingClient(_credit_error())
+    client, factory = _make_ctx(tmp_path, ai)
+    assert _paste(client).status_code == 502
+    doc_id = repo.list_documents(factory())[0].id
+
+    ai.exc = None  # "credits added" — the API works again
+    r = client.post(f"/api/documents/{doc_id}/generate")
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+    conn = factory()
+    modules = repo.list_modules(conn, doc_id)
+    assert len(modules) == 1
+    assert modules[0].title == "Cells"
+    assert repo.get_document(conn, doc_id).cheat_sheet == "CHEAT SHEET"
+
+
+def test_generate_still_failing_502_and_retryable_again(tmp_path):
+    ai = FailingClient(_credit_error())
+    client, factory = _make_ctx(tmp_path, ai)
+    assert _paste(client).status_code == 502
+    doc_id = repo.list_documents(factory())[0].id
+
+    r = client.post(f"/api/documents/{doc_id}/generate")
+    assert r.status_code == 502
+    assert "credit" in r.json()["detail"].lower()
+    assert repo.list_modules(factory(), doc_id) == []
+
+
+def test_generate_on_already_generated_doc_400(ctx):
+    client, factory = ctx
+    doc_id = _paste(client).json()["document_id"]
+    r = client.post(f"/api/documents/{doc_id}/generate")
+    assert r.status_code == 400
+    assert "already has a generated reviewer" in r.json()["detail"]
+
+
+def test_generate_unknown_doc_404(ctx):
+    client, factory = ctx
+    r = client.post("/api/documents/999/generate")
+    assert r.status_code == 404
