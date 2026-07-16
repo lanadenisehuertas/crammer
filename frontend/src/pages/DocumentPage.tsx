@@ -1,11 +1,51 @@
-import { useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Bookmark, Check, ChevronDown, Copy, Sparkles } from "lucide-react";
+import {
+  ArrowLeft,
+  Bookmark,
+  Check,
+  ChevronDown,
+  Copy,
+  Flame,
+  Keyboard,
+  Layers,
+  ListChecks,
+  Shuffle,
+  Sparkles,
+  Target,
+} from "lucide-react";
 import { api, DocDetail } from "../lib/api";
 import { StatsRow } from "../components/StatsRow";
 import { OriginBadge } from "../components/OriginBadge";
 import { Card } from "../components/ui";
 import { cn } from "../lib/cn";
+
+function ReviewModeTile({
+  to,
+  icon,
+  label,
+  description,
+  tint,
+}: {
+  to: string;
+  icon: ReactNode;
+  label: string;
+  description: string;
+  tint: string;
+}) {
+  return (
+    <Link
+      to={to}
+      className="flex flex-col gap-3 rounded-card bg-white p-4 shadow-soft transition-transform active:scale-[0.98]"
+    >
+      <div className={cn("flex h-10 w-10 items-center justify-center rounded-full", tint)}>{icon}</div>
+      <div>
+        <p className="text-sm font-bold text-ink">{label}</p>
+        <p className="text-xs text-muted">{description}</p>
+      </div>
+    </Link>
+  );
+}
 
 export function DocumentPage() {
   const { id } = useParams<{ id: string }>();
@@ -163,42 +203,68 @@ export function DocumentPage() {
         )}
       </div>
 
-      <div className="mb-6 flex items-center gap-3">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-base font-bold text-ink">Review</h2>
         <button
           type="button"
           aria-label="Bookmark"
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white shadow-soft text-ink"
+          className="flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-soft text-ink"
         >
-          <Bookmark size={18} />
+          <Bookmark size={16} />
         </button>
-        <Link
-          to={`/study/${doc.id}?mode=due`}
-          className="flex-1 rounded-full bg-ink py-3 text-center text-sm font-semibold text-white"
-        >
-          Start Studying
-        </Link>
       </div>
 
-      <div className="mb-6 flex flex-wrap gap-2">
-        <Link
-          to={`/study/${doc.id}?mode=cram`}
-          className="rounded-full bg-lav px-4 py-2 text-xs font-semibold text-ink"
-        >
-          Cram
-        </Link>
-        <Link
-          to={`/study/${doc.id}?mode=weak`}
-          className="rounded-full bg-mint px-4 py-2 text-xs font-semibold text-ink"
-        >
-          Weak spots
-        </Link>
-        <Link
+      <div className="mb-4 grid grid-cols-2 gap-3">
+        <ReviewModeTile
+          to={`/study/${doc.id}?mode=due`}
+          icon={<Layers size={18} className="text-primary" />}
+          label="Flashcards"
+          description="Due for review"
+          tint="bg-lav"
+        />
+        <ReviewModeTile
+          to={`/quiz/${doc.id}`}
+          icon={<ListChecks size={18} className="text-emerald-700" />}
+          label="Quiz"
+          description="Multiple choice"
+          tint="bg-mint"
+        />
+        <ReviewModeTile
+          to={`/type/${doc.id}`}
+          icon={<Keyboard size={18} className="text-blue" />}
+          label="Type answers"
+          description="Type what you recall"
+          tint="bg-blue/10"
+        />
+        <ReviewModeTile
+          to={`/match/${doc.id}`}
+          icon={<Shuffle size={18} className="text-amber-800" />}
+          label="Match"
+          description="Pair terms & answers"
+          tint="bg-amber-200"
+        />
+        <ReviewModeTile
           to={`/practice/${doc.id}`}
-          className="rounded-full bg-washAlt px-4 py-2 text-xs font-semibold text-ink"
-        >
-          Practice
-        </Link>
+          icon={<Target size={18} className="text-primary" />}
+          label="Practice test"
+          description="Exam simulation"
+          tint="bg-lav"
+        />
+        <ReviewModeTile
+          to={`/study/${doc.id}?mode=cram`}
+          icon={<Flame size={18} className="text-emerald-700" />}
+          label="Cram all"
+          description="Every card, right now"
+          tint="bg-mint"
+        />
       </div>
+
+      <Link
+        to={`/study/${doc.id}?mode=weak`}
+        className="mb-6 inline-block rounded-full bg-washAlt px-4 py-2 text-xs font-semibold text-ink"
+      >
+        Drill weak spots
+      </Link>
 
       <div>
         {!examOpen ? (

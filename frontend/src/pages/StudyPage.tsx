@@ -4,6 +4,8 @@ import { PartyPopper } from "lucide-react";
 import { api, CardOut, QueueMode, Rating } from "../lib/api";
 import { Card, Progress } from "../components/ui";
 import { RatingPills } from "../components/RatingPills";
+import { useKeys } from "../lib/useKeys";
+import { ShortcutHints } from "../components/ShortcutHints";
 
 const MODE_LABEL: Record<QueueMode, string> = {
   due: "Due review",
@@ -45,6 +47,30 @@ export function StudyPage() {
       setSubmitting(false);
     }
   }
+
+  useKeys(
+    {
+      " ": () => {
+        if (cards && index < cards.length && !revealed) setRevealed(true);
+      },
+      Enter: () => {
+        if (cards && index < cards.length && !revealed) setRevealed(true);
+      },
+      "1": () => {
+        if (revealed) rate("again");
+      },
+      "2": () => {
+        if (revealed) rate("hard");
+      },
+      "3": () => {
+        if (revealed) rate("good");
+      },
+      "4": () => {
+        if (revealed) rate("easy");
+      },
+    },
+    [cards, index, revealed, submitting],
+  );
 
   if (error) {
     return (
@@ -115,6 +141,14 @@ export function StudyPage() {
       ) : (
         <RatingPills onRate={rate} disabled={submitting} />
       )}
+
+      <ShortcutHints
+        hints={
+          revealed
+            ? [{ keys: "1–4", label: "Rate" }]
+            : [{ keys: "Space", label: "Reveal" }]
+        }
+      />
     </div>
   );
 }
