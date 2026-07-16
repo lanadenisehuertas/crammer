@@ -1,4 +1,4 @@
-from reviewer.generation.generator import generate_reviewer
+from reviewer.generation.generator import generate_more_cards, generate_reviewer
 
 
 class FakeClient:
@@ -35,3 +35,25 @@ def test_generate_reviewer_merges_multiple_chunks():
     titles = [m.title for m in result.modules]
     assert titles == ["Cells", "Energy"]
     assert len(client.calls) == 3  # two reviewer calls + one cheat sheet
+
+
+_MORE_CARDS_JSON = '{"cards":[{"type":"flashcard","question":"New Q?","answer":"New A."}]}'
+
+
+def test_generate_more_cards_returns_parsed_cards():
+    client = FakeClient([_MORE_CARDS_JSON])
+    cards = generate_more_cards(client, "Membrane: controls entry", ["Q?"])
+    assert len(cards) == 1
+    assert cards[0].question == "New Q?"
+    assert cards[0].answer == "New A."
+    # exclusions and section text are both threaded through to the prompt
+    system, user = client.calls[0]
+    assert "duplicat" in system.lower()
+    assert "Membrane" in user
+    assert "Q?" in user
+
+
+def test_generate_more_cards_garbage_reply_returns_empty_list():
+    client = FakeClient(["not json at all"])
+    cards = generate_more_cards(client, "some section", [])
+    assert cards == []

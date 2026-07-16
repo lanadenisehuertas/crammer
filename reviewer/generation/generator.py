@@ -2,8 +2,8 @@ import sqlite3
 
 from reviewer.generation import prompts
 from reviewer.generation.chunker import chunk_text
-from reviewer.generation.parser import parse_modules
-from reviewer.generation.schemas import GeneratedReviewer
+from reviewer.generation.parser import parse_cards, parse_modules
+from reviewer.generation.schemas import GeneratedCard, GeneratedReviewer
 from reviewer.generation.store import store_reviewer
 
 
@@ -20,6 +20,15 @@ def generate_reviewer(client, extracted_text: str, *, max_chars: int = 12000) ->
         cheat_sheet = client.generate_text(
             prompts.CHEATSHEET_SYSTEM, prompts.build_cheatsheet_user(modules)).strip()
     return GeneratedReviewer(modules=modules, cheat_sheet=cheat_sheet)
+
+
+def generate_more_cards(client, sections_text: str, existing_questions: list[str],
+                        count: int = 5) -> list[GeneratedCard]:
+    """Generate new cards for a module that don't duplicate its existing questions."""
+    raw = client.generate_text(
+        prompts.MORE_CARDS_SYSTEM,
+        prompts.build_more_cards_user(sections_text, existing_questions, count))
+    return parse_cards(raw)
 
 
 def build_and_store(conn: sqlite3.Connection, client, document_id: int,

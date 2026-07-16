@@ -80,3 +80,25 @@ def parse_modules(raw: str) -> list[GeneratedModule]:
         except (TypeError, AttributeError, ValueError):
             continue
     return modules
+
+
+def parse_cards(raw: str) -> list[GeneratedCard]:
+    """Parse a Claude JSON reply of shape {"cards": [...]} into GeneratedCards.
+
+    Never raises on any string input: malformed content is skipped and whatever
+    can be salvaged is returned (possibly []).
+    """
+    text = _extract_json(raw)
+    if not text:
+        return []
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    try:
+        return [c for c in (_parse_card(x) for x in (data.get("cards") or [])
+                            if isinstance(x, dict)) if c]
+    except (TypeError, AttributeError, ValueError):
+        return []

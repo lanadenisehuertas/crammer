@@ -1,4 +1,5 @@
 import { ReactNode, useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -12,15 +13,19 @@ import {
   Layers,
   ListChecks,
   Loader2,
+  Printer,
   Shuffle,
   Sparkles,
   Target,
+  Trash2,
 } from "lucide-react";
 import { api, DocDetail } from "../lib/api";
 import { StatsRow } from "../components/StatsRow";
 import { OriginBadge } from "../components/OriginBadge";
+import { ModuleCardsList } from "../components/ModuleCardsList";
 import { Button, Card } from "../components/ui";
 import { cn } from "../lib/cn";
+import { clearAllSessionsForDocument } from "../lib/sessionStore";
 
 function ReviewModeTile({
   to,
@@ -61,6 +66,10 @@ export function DocumentPage() {
   const [copied, setCopied] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [cheatCopied, setCheatCopied] = useState(false);
 
   const load = useCallback(() => {
     api
@@ -109,6 +118,35 @@ export function DocumentPage() {
     }
   }
 
+  async function deleteDocument() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.deleteDocument(docId);
+      clearAllSessionsForDocument(docId);
+      navigate("/");
+    } catch (e) {
+      setDeleteError((e as Error).message ?? "Could not delete this document.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function copyCheatSheet() {
+    if (!doc?.cheat_sheet) return;
+    try {
+      await navigator.clipboard.writeText(doc.cheat_sheet);
+      setCheatCopied(true);
+      setTimeout(() => setCheatCopied(false), 2000);
+    } catch {
+      // clipboard may be unavailable; ignore silently
+    }
+  }
+
+  function printCheatSheet() {
+    window.print();
+  }
+
   if (error) {
     return (
       <div className="rounded-card bg-white p-8 text-center shadow-soft">
@@ -136,14 +174,24 @@ export function DocumentPage() {
           >
             <ArrowLeft size={18} />
           </button>
-          <button
-            type="button"
-            aria-label="Copy link"
-            onClick={copyLink}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15"
-          >
-            {copied ? <Check size={18} /> : <Copy size={18} />}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="Copy link"
+              onClick={copyLink}
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15"
+            >
+              {copied ? <Check size={18} /> : <Copy size={18} />}
+            </button>
+            <button
+              type="button"
+              aria-label="Delete document"
+              onClick={() => setConfirmDelete(true)}
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15"
+            >
+              <Trash2 size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-white/20">
@@ -159,12 +207,73 @@ export function DocumentPage() {
         <StatsRow modules={doc.modules_total} cards={doc.cards_total} due={doc.cards_due} />
       </div>
 
-      {doc.cheat_sheet && (
+      {confirmDelete && (
         <Card className="mb-6 p-5">
-          <h2 className="mb-2 text-base font-bold text-ink">Cheat sheet</h2>
+          <p className="mb-1 font-bold text-ink">Delete this document and all its cards?</p>
+          <p className="mb-4 text-sm text-muted">This can&apos;t be undone.</p>
+          {deleteError && (
+            <div className="mb-4 rounded-card bg-red-50 p-3 text-sm font-medium text-red-700">
+              {deleteError}
+            </div>
+          )}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(false)}
+              disabled={deleting}
+              className="flex-1 rounded-full bg-washAlt py-3 text-sm font-bold text-ink disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={deleteDocument}
+              disabled={deleting}
+              className="flex-1 rounded-full bg-red-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {doc.cheat_sheet && (
+        <Card className="mb-6 p-5 print:hidden">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h2 className="text-base font-bold text-ink">Cheat sheet</h2>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={copyCheatSheet}
+                className="inline-flex items-center gap-1.5 rounded-full bg-washAlt px-3 py-1.5 text-xs font-semibold text-ink"
+              >
+                {cheatCopied ? <Check size={13} /> : <Copy size={13} />}
+                {cheatCopied ? "Copied!" : "Copy"}
+              </button>
+              <button
+                type="button"
+                onClick={printCheatSheet}
+                className="inline-flex items-center gap-1.5 rounded-full bg-washAlt px-3 py-1.5 text-xs font-semibold text-ink"
+              >
+                <Printer size={13} />
+                Print
+              </button>
+            </div>
+          </div>
           <p className="whitespace-pre-line text-sm leading-relaxed text-muted">{doc.cheat_sheet}</p>
         </Card>
       )}
+
+      {doc.cheat_sheet &&
+        typeof document !== "undefined" &&
+        document.getElementById("root") &&
+        createPortal(
+          <div id="print-cheat-sheet">
+            <h1>{doc.title}</h1>
+            <pre>{doc.cheat_sheet}</pre>
+          </div>,
+          document.getElementById("root")!,
+        )}
 
       <h2 className="mb-3 text-base font-bold text-ink">Modules</h2>
       <div className="mb-6 space-y-3">
@@ -210,6 +319,7 @@ export function DocumentPage() {
                   {m.sections.length === 0 && (
                     <p className="text-sm text-muted">No notes for this module yet.</p>
                   )}
+                  <ModuleCardsList docId={doc.id} moduleId={m.id} cards={m.cards} onChanged={load} />
                 </div>
               )}
             </Card>

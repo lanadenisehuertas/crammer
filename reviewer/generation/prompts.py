@@ -57,3 +57,35 @@ def build_cheatsheet_user(modules: list[GeneratedModule]) -> str:
         "Reviewer key points:\n" + "\n".join(lines) +
         "\n\nWrite the cheat sheet now."
     )
+
+
+MORE_CARDS_SYSTEM = (
+    "You are an expert active-recall card writer. Given reviewer sections and a list "
+    "of questions that have already been asked, write NEW study cards that test the "
+    "same material without duplicating any existing question.\n\n"
+    "Rules:\n"
+    "- Base every card only on the given reviewer sections.\n"
+    "- Card types: 'flashcard', 'fill-in-blank', 'short-answer'.\n"
+    "- Never repeat, rephrase, or trivially reword a question that is already in the "
+    "existing list.\n"
+    "- Output ONLY valid JSON matching the schema. No prose, no markdown fences."
+)
+
+_MORE_CARDS_SCHEMA_EXAMPLE = (
+    '{\n'
+    '  "cards": [\n'
+    '    {"type": "flashcard", "question": "Q?", "answer": "A."}\n'
+    '  ]\n'
+    '}'
+)
+
+
+def build_more_cards_user(sections_text: str, existing_questions: list[str],
+                          count: int = 5) -> str:
+    existing = "\n".join(f"- {q}" for q in existing_questions) or "(none yet)"
+    return (
+        "Reviewer sections:\n<<<\n" + sections_text + "\n>>>\n\n"
+        "Already-asked questions (do NOT duplicate these):\n" + existing + "\n\n"
+        f"Write {count} new cards that are not duplicates of the above.\n"
+        "Return JSON of exactly this shape:\n" + _MORE_CARDS_SCHEMA_EXAMPLE
+    )

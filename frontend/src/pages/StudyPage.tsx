@@ -41,7 +41,10 @@ interface PendingResume {
 
 export function StudyPage() {
   const { id } = useParams<{ id: string }>();
-  const docId = Number(id);
+  const isAll = id === "all";
+  const docId: number | "all" = isAll ? "all" : Number(id);
+  const backTo = isAll ? "/" : `/document/${docId}`;
+  const backLabel = isAll ? "Back to dashboard" : "Back to document";
   const [searchParams] = useSearchParams();
   const mode = (searchParams.get("mode") as QueueMode) || "due";
   const activity = `study-${mode}` as Activity;
@@ -77,8 +80,8 @@ export function StudyPage() {
     setQueue(null);
     setPending(null);
     setError(null);
-    api
-      .queue(docId, mode)
+    const fetchQueue = isAll ? api.globalQueue(mode) : api.queue(docId as number, mode);
+    fetchQueue
       .then((res) => {
         if (cancelled) return;
         setFetched(res.cards);
@@ -219,8 +222,8 @@ export function StudyPage() {
     return (
       <Card className="p-8 text-center">
         <p className="mb-4 font-semibold text-ink">{error}</p>
-        <Link to={`/document/${docId}`} className="rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-white">
-          Back to document
+        <Link to={backTo} className="rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-white">
+          {backLabel}
         </Link>
       </Card>
     );
@@ -260,8 +263,8 @@ export function StudyPage() {
             ? "Come back once cards are due, or try another mode."
             : `${finished.size} card${finished.size === 1 ? "" : "s"} mastered · ${answers} answer${answers === 1 ? "" : "s"}`}
         </p>
-        <Link to={`/document/${docId}`} className="rounded-full bg-ink px-6 py-3 text-sm font-semibold text-white">
-          Back to document
+        <Link to={backTo} className="rounded-full bg-ink px-6 py-3 text-sm font-semibold text-white">
+          {backLabel}
         </Link>
       </Card>
     );
