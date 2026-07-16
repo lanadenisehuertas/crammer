@@ -35,3 +35,34 @@ def test_skips_cards_missing_question_or_answer():
 
 def test_unparseable_returns_empty_list():
     assert parse_modules("not json at all") == []
+
+
+def test_non_string_origin_is_coerced_not_crashed():
+    raw = '{"modules":[{"title":"T","sections":[{"heading":"h","content":"c","origin":["weird"]}],"cards":[]}]}'
+    modules = parse_modules(raw)
+    assert modules[0].sections[0].origin == "from-file"
+
+
+def test_non_string_card_type_is_coerced_not_crashed():
+    raw = '{"modules":[{"title":"T","sections":[],"cards":[{"type":5,"question":"q","answer":"a"}]}]}'
+    modules = parse_modules(raw)
+    assert modules[0].cards[0].card_type == "flashcard"
+
+
+def test_null_sections_is_treated_as_empty():
+    raw = '{"modules":[{"title":"T","sections":null,"cards":[]}]}'
+    modules = parse_modules(raw)
+    assert modules[0].sections == []
+
+
+def test_null_cards_is_treated_as_empty():
+    raw = '{"modules":[{"title":"T","sections":[],"cards":null}]}'
+    modules = parse_modules(raw)
+    assert modules[0].cards == []
+
+
+def test_trailing_prose_with_stray_brace_does_not_lose_json():
+    raw = '{"modules":[{"title":"T","sections":[],"cards":[]}]}\n\nNote: `{}` is an example.'
+    modules = parse_modules(raw)
+    assert len(modules) == 1
+    assert modules[0].title == "T"
