@@ -92,6 +92,34 @@ def create_app(conn_factory, client) -> FastAPI:
         ctx = {"doc": doc, "modules": modules, "stats": stats}
         return templates.TemplateResponse(request, "document.html", ctx)
 
+    def render_card(request, doc, card, mode, reveal, index=None, total=None):
+        ctx = {"doc": doc, "card": card, "mode": mode,
+               "reveal": reveal, "index": index, "total": total}
+        return templates.TemplateResponse(request, "card.html", ctx)
+
+    @app.get("/study/{doc_id}", response_class=HTMLResponse)
+    def study(doc_id: int, request: Request, card: int = 0, reveal: int = 0,
+              conn: sqlite3.Connection = Depends(get_conn)):
+        doc = repo.get_document(conn, doc_id)
+        if doc is None:
+            return _error(request, "That document does not exist.", status=404)
+        due = due_cards(conn, doc_id, now=datetime.now())
+        if not due:
+            return templates.TemplateResponse(
+                request, "done.html", {"doc": doc, "message": "You're all caught up!"})
+        current = next((c for c in due if c.id == card), due[0])
+        return render_card(request, doc, current, "study", bool(reveal))
+
+    @app.post("/review")
+    def review(request: Request, conn: sqlite3.Connection = Depends(get_conn),
+               doc_id: int = Form(...), card_id: int = Form(...),
+               rating: str = Form(...), mode: str = Form("study"),
+               index: int = Form(0)):
+        review_card(conn, card_id, rating, now=datetime.now())
+        if mode == "study":
+            return RedirectResponse(f"/study/{doc_id}", status_code=303)
+        return RedirectResponse(f"/session/{doc_id}/{mode}?i={index + 1}", status_code=303)
+
     # further routes added in later tasks
 
     app.state.conn_factory = conn_factory
