@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from reviewer import repository as repo
 from reviewer.schema import init_db
@@ -190,6 +191,21 @@ def create_app(conn_factory, client) -> FastAPI:
 
     dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
     if dist.is_dir():
-        app.mount("/app", StaticFiles(directory=str(dist), html=True), name="spa")
+        app.mount("/app", _SPAStaticFiles(directory=str(dist), html=True), name="spa")
 
     return app
+
+
+class _SPAStaticFiles(StaticFiles):
+    """Static files that fall back to index.html so SPA deep links survive refresh."""
+
+    async def get_response(self, path: str, scope):
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            return await super().get_response("index.html", scope)
+        if response.status_code == 404:
+            response = await super().get_response("index.html", scope)
+        return response
