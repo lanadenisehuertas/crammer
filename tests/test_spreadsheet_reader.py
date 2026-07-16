@@ -27,3 +27,19 @@ def test_read_xlsx_two_columns_makes_pairs():
     wb.save(buf)
     pc = read_xlsx(buf.getvalue())
     assert ("Photosynthesis", "Converting light to energy") in pc.flashcard_pairs
+
+
+def test_numeric_two_column_data_is_not_treated_as_flashcards():
+    # A ledger-style sheet (no term/definition header, numeric second column)
+    # must NOT become flashcards.
+    csv_bytes = b"2026-01-01,50\n2026-01-02,75\n2026-01-03,120\n"
+    pc = read_csv(csv_bytes)
+    assert pc.flashcard_pairs == []
+    assert "2026-01-01" in pc.text
+
+
+def test_headerless_vocab_list_still_makes_pairs():
+    # No header row, but the definition column is clearly wordy -> still pairs.
+    csv_bytes = b"Mitochondria,The powerhouse of the cell\nOsmosis,Diffusion of water\n"
+    pc = read_csv(csv_bytes)
+    assert ("Mitochondria", "The powerhouse of the cell") in pc.flashcard_pairs
