@@ -2,7 +2,7 @@ import sqlite3
 from datetime import date, datetime
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -13,7 +13,7 @@ from reviewer.parsing.base import EmptyContentError, UnsupportedFileType
 from reviewer.generation import build_and_store
 from reviewer.scheduler.review import review_card
 from reviewer.scheduler.selection import cram_cards, due_cards, weak_spot_cards
-from reviewer.progress.mastery import document_mastery
+from reviewer.progress.mastery import document_mastery, module_finished
 from reviewer.progress.stats import dashboard_stats
 from reviewer.practice.test import build_practice_test, score
 
@@ -23,7 +23,11 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 def create_app(conn_factory, client) -> FastAPI:
     app = FastAPI(title="Crammer")
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-    init_db(conn_factory())
+    startup_conn = conn_factory()
+    try:
+        init_db(startup_conn)
+    finally:
+        startup_conn.close()
 
     def get_conn():
         conn = conn_factory()
@@ -80,13 +84,12 @@ def create_app(conn_factory, client) -> FastAPI:
             return _error(request, "That document does not exist.", status=404)
         modules = []
         for m in repo.list_modules(conn, doc_id):
+            cards = repo.list_cards_for_module(conn, m.id)
             modules.append({
                 "module": m,
                 "sections": repo.list_sections(conn, m.id),
-                "cards": repo.list_cards_for_module(conn, m.id),
-                "finished": all(c.review_count > 0
-                                for c in repo.list_cards_for_module(conn, m.id))
-                            and bool(repo.list_cards_for_module(conn, m.id)),
+                "cards": cards,
+                "finished": module_finished(conn, m.id),
             })
         stats = dashboard_stats(conn, doc_id, now=datetime.now(), today=date.today())
         ctx = {"doc": doc, "modules": modules, "stats": stats}
@@ -115,13 +118,17 @@ def create_app(conn_factory, client) -> FastAPI:
                doc_id: int = Form(...), card_id: int = Form(...),
                rating: str = Form(...), mode: str = Form("study"),
                index: int = Form(0)):
-        review_card(conn, card_id, rating, now=datetime.now())
+        try:
+            review_card(conn, card_id, rating, now=datetime.now())
+        except ValueError:
+            return _error(request, "That card or rating is no longer valid.", status=400)
         if mode == "study":
             return RedirectResponse(f"/study/{doc_id}", status_code=303)
         return RedirectResponse(f"/session/{doc_id}/{mode}?i={index + 1}", status_code=303)
 
     @app.get("/session/{doc_id}/{mode}", response_class=HTMLResponse)
-    def session(doc_id: int, mode: str, request: Request, i: int = 0, reveal: int = 0,
+    def session(doc_id: int, mode: str, request: Request,
+                i: int = Query(0, ge=0), reveal: int = Query(0, ge=0),
                 conn: sqlite3.Connection = Depends(get_conn)):
         doc = repo.get_document(conn, doc_id)
         if doc is None:
@@ -144,8 +151,10 @@ def create_app(conn_factory, client) -> FastAPI:
                            index=i, total=len(cards))
 
     @app.get("/practice/{doc_id}", response_class=HTMLResponse)
-    def practice(doc_id: int, request: Request, i: int = 0, reveal: int = 0,
-                 correct: int = 0, conn: sqlite3.Connection = Depends(get_conn)):
+    def practice(doc_id: int, request: Request,
+                 i: int = Query(0, ge=0), reveal: int = Query(0, ge=0),
+                 correct: int = Query(0, ge=0),
+                 conn: sqlite3.Connection = Depends(get_conn)):
         doc = repo.get_document(conn, doc_id)
         if doc is None:
             return _error(request, "That document does not exist.", status=404)
@@ -154,6 +163,7 @@ def create_app(conn_factory, client) -> FastAPI:
             return templates.TemplateResponse(
                 request, "done.html", {"doc": doc, "message": "No cards to test yet."})
         if i >= len(cards):
+            correct = max(0, min(correct, len(cards)))
             result = score([True] * correct + [False] * (len(cards) - correct))
             return templates.TemplateResponse(
                 request, "score.html", {"doc": doc, "result": result})
@@ -170,11 +180,4 @@ def create_app(conn_factory, client) -> FastAPI:
         repo.set_exam_date(conn, doc_id, exam_date.strip() or None)
         return RedirectResponse(f"/document/{doc_id}", status_code=303)
 
-    # further routes added in later tasks
-
-    app.state.conn_factory = conn_factory
-    app.state.client = client
-    app.state.templates = templates
-    app.state.get_conn = get_conn
-    app.state.error = _error
     return app
