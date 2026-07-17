@@ -1,4 +1,6 @@
 import base64
+import re
+import time
 
 import httpx
 
@@ -10,14 +12,41 @@ _BLOCKED_MESSAGE = (
     "rephrase."
 )
 _RATE_LIMIT_MESSAGE = (
-    "Gemini's free-tier limit was hit. Wait a minute and try again (free tier "
-    "allows a limited number of requests per minute/day)."
+    "Gemini's free-tier limit was hit even after retrying. {reason} "
+    "If this happens on your very first request, the key's project may have no "
+    "free quota for this model - try REVIEWER_GEMINI_MODEL=gemini-2.5-flash-lite "
+    "in your .env, or wait and try again."
 )
+_MAX_RATE_LIMIT_RETRIES = 2  # 3 attempts total
+_DEFAULT_RETRY_SECONDS = 30.0
 _KEY_REJECTED_MESSAGE = (
     "Your Gemini API key was rejected. Check GEMINI_API_KEY in your .env file "
     "(get a free key at aistudio.google.com)."
 )
 _CONNECTION_MESSAGE = "Couldn't reach the Gemini API. Check your internet connection."
+
+
+def _retry_delay_seconds(response: httpx.Response) -> float:
+    """Seconds to wait before retrying a 429, honoring Google's RetryInfo hint."""
+    try:
+        details = response.json().get("error", {}).get("details", [])
+        for detail in details:
+            if str(detail.get("@type", "")).endswith("RetryInfo"):
+                match = re.match(r"(\d+(?:\.\d+)?)s", str(detail.get("retryDelay", "")))
+                if match:
+                    return min(float(match.group(1)) + 1.0, 120.0)
+    except Exception:
+        pass
+    return _DEFAULT_RETRY_SECONDS
+
+
+def _quota_reason(response: httpx.Response) -> str:
+    """Google's own explanation of which quota was exceeded, if it sent one."""
+    try:
+        message = response.json().get("error", {}).get("message", "")
+        return f"Google says: {message[:300]}" if message else ""
+    except Exception:
+        return ""
 
 
 class GeminiClient:
@@ -27,11 +56,12 @@ class GeminiClient:
     pulling in the google-genai SDK, keeping the dependency footprint small.
     """
 
-    def __init__(self, api_key: str, model: str, transport=None):
-        # `transport` lets tests inject an httpx.MockTransport; production
-        # leaves it None so httpx.Client uses the real network transport.
+    def __init__(self, api_key: str, model: str, transport=None, sleep=time.sleep):
+        # `transport` lets tests inject an httpx.MockTransport; `sleep` lets
+        # tests skip real waiting. Production leaves both at their defaults.
         self._api_key = api_key
         self._model = model
+        self._sleep = sleep
         self._http = httpx.Client(
             base_url="https://generativelanguage.googleapis.com",
             timeout=120.0,
@@ -63,17 +93,25 @@ class GeminiClient:
         if system is not None:
             body["system_instruction"] = {"parts": [{"text": system}]}
 
-        try:
-            response = self._http.post(
-                f"/v1beta/models/{self._model}:generateContent",
-                headers={"x-goog-api-key": self._api_key},
-                json=body,
-            )
-        except (httpx.ConnectError, httpx.TimeoutException):
-            raise AIProviderError(_CONNECTION_MESSAGE)
+        for attempt in range(_MAX_RATE_LIMIT_RETRIES + 1):
+            try:
+                response = self._http.post(
+                    f"/v1beta/models/{self._model}:generateContent",
+                    headers={"x-goog-api-key": self._api_key},
+                    json=body,
+                )
+            except (httpx.ConnectError, httpx.TimeoutException):
+                raise AIProviderError(_CONNECTION_MESSAGE)
+            if response.status_code != 429:
+                break
+            # Rate-limited: wait (using Google's own retry hint when present)
+            # and try again, so a per-minute blip becomes a slower success.
+            if attempt < _MAX_RATE_LIMIT_RETRIES:
+                self._sleep(_retry_delay_seconds(response))
 
         if response.status_code == 429:
-            raise AIProviderError(_RATE_LIMIT_MESSAGE)
+            raise AIProviderError(
+                _RATE_LIMIT_MESSAGE.format(reason=_quota_reason(response)))
         if response.status_code in (400, 401, 403):
             raise AIProviderError(_KEY_REJECTED_MESSAGE)
         if response.status_code >= 400:

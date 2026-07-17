@@ -72,15 +72,45 @@ def test_response_parsing_joins_multiple_text_parts():
     assert client.generate_text(system="SYS", user="USER") == "Hello world"
 
 
-def test_rate_limit_429_raises_free_tier_error():
+def test_rate_limit_429_retries_then_raises_with_google_reason():
+    calls = {"n": 0}
+    sleeps = []
+
     def handler(request):
-        return httpx.Response(429, json={"error": {"message": "rate limited"}})
+        calls["n"] += 1
+        return httpx.Response(429, json={"error": {"message": "Quota exceeded for quota metric X"}})
 
     client = GeminiClient(api_key="test-key", model="gemini-2.5-flash",
-                          transport=httpx.MockTransport(handler))
+                          transport=httpx.MockTransport(handler),
+                          sleep=sleeps.append)
     with pytest.raises(AIProviderError) as exc_info:
         client.generate_text(system="SYS", user="USER")
+    assert calls["n"] == 3  # initial attempt + 2 retries
+    assert len(sleeps) == 2
     assert "free-tier" in str(exc_info.value)
+    assert "Quota exceeded for quota metric X" in str(exc_info.value)
+
+
+def test_rate_limit_429_then_success_recovers():
+    calls = {"n": 0}
+    sleeps = []
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, json={"error": {
+                "message": "slow down",
+                "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo",
+                             "retryDelay": "7s"}],
+            }})
+        return _ok_response("recovered")
+
+    client = GeminiClient(api_key="test-key", model="gemini-2.5-flash",
+                          transport=httpx.MockTransport(handler),
+                          sleep=sleeps.append)
+    assert client.generate_text(system="SYS", user="USER") == "recovered"
+    assert calls["n"] == 2
+    assert sleeps == [8.0]  # Google's 7s hint + 1s buffer
 
 
 @pytest.mark.parametrize("status", [400, 401, 403])
