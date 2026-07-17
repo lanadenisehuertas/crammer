@@ -98,13 +98,33 @@ export function DocumentPage() {
   async function retryGeneration() {
     setRetrying(true);
     setRetryError(null);
+    // Poll alongside the request: if the browser drops the long-running
+    // request, generation still finishes server-side — detect it by the
+    // modules appearing rather than trusting the HTTP response alone.
+    const poll = window.setInterval(async () => {
+      try {
+        const fresh = await api.document(docId);
+        if (fresh.modules.length > 0) {
+          window.clearInterval(poll);
+          setRetrying(false);
+          setDoc(fresh);
+        }
+      } catch {
+        /* transient poll failure: keep trying */
+      }
+    }, 4000);
     try {
       await api.generateDocument(docId);
       load();
-    } catch (e) {
-      setRetryError((e as Error).message ?? "Could not retry generation.");
-    } finally {
+      window.clearInterval(poll);
       setRetrying(false);
+    } catch (e) {
+      if (!(e instanceof TypeError)) {
+        // Real server-reported failure; a network drop keeps the poller alive.
+        window.clearInterval(poll);
+        setRetrying(false);
+        setRetryError((e as Error).message ?? "Could not retry generation.");
+      }
     }
   }
 
