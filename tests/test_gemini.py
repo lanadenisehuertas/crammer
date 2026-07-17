@@ -182,3 +182,53 @@ def test_timeout_error_raises_friendly_message():
     with pytest.raises(AIProviderError) as exc_info:
         client.generate_text(system="SYS", user="USER")
     assert "internet connection" in str(exc_info.value)
+
+
+def test_404_model_discovers_replacement_and_retries():
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path.endswith(":generateContent"):
+            if "gemini-2.5-flash" in request.url.path:
+                return httpx.Response(404, json={"error": {
+                    "code": 404, "message": "no longer available to new users",
+                    "status": "NOT_FOUND"}})
+            return _ok_response("from new model")
+        # ListModels
+        return httpx.Response(200, json={"models": [
+            {"name": "models/gemini-3-flash-preview",
+             "supportedGenerationMethods": ["generateContent"]},
+            {"name": "models/gemini-3-flash",
+             "supportedGenerationMethods": ["generateContent"]},
+            {"name": "models/gemini-3-flash-lite",
+             "supportedGenerationMethods": ["generateContent"]},
+            {"name": "models/gemini-3-pro-image",
+             "supportedGenerationMethods": ["generateContent"]},
+            {"name": "models/text-embedding-005",
+             "supportedGenerationMethods": ["embedContent"]},
+        ]})
+
+    client = GeminiClient(api_key="test-key", model="gemini-2.5-flash",
+                          transport=httpx.MockTransport(handler))
+    assert client.generate_text(system="SYS", user="USER") == "from new model"
+    # old model 404'd, models listed, new model called
+    assert calls[0].endswith("gemini-2.5-flash:generateContent")
+    assert calls[1] == "/v1beta/models"
+    assert calls[2].endswith("gemini-3-flash:generateContent")  # stable, not preview/lite
+
+
+def test_404_with_no_replacement_raises_with_available_list():
+    def handler(request):
+        if request.url.path.endswith(":generateContent"):
+            return httpx.Response(404, json={"error": {"message": "gone"}})
+        return httpx.Response(200, json={"models": [
+            {"name": "models/text-embedding-005",
+             "supportedGenerationMethods": ["embedContent"]},
+        ]})
+
+    client = GeminiClient(api_key="test-key", model="gemini-2.5-flash",
+                          transport=httpx.MockTransport(handler))
+    with pytest.raises(AIProviderError) as exc_info:
+        client.generate_text(system="SYS", user="USER")
+    assert "REVIEWER_GEMINI_MODEL" in str(exc_info.value)

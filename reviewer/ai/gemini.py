@@ -4,6 +4,9 @@ import time
 
 import httpx
 
+_EXCLUDED_MODEL_HINTS = (
+    "preview", "exp", "image", "live", "tts", "audio", "embedding", "thinking")
+
 from reviewer.ai.errors import AIProviderError
 from reviewer.ai.prompts import OCR_INSTRUCTION
 
@@ -40,6 +43,29 @@ def _retry_delay_seconds(response: httpx.Response) -> float:
     return _DEFAULT_RETRY_SECONDS
 
 
+def _model_version(name: str) -> float:
+    """Numeric version from a model name like gemini-3-flash / gemini-2.5-flash."""
+    match = re.search(r"gemini-(\d+(?:\.\d+)?)", name)
+    return float(match.group(1)) if match else 0.0
+
+
+def _pick_fallback_model(available: list[str]) -> str | None:
+    """Best general-purpose model for reviewer generation: prefer stable
+    'flash' models (fast + free-tier friendly), highest version first, plain
+    flash over flash-lite."""
+    def stable(names):
+        return [n for n in names
+                if not any(h in n for h in _EXCLUDED_MODEL_HINTS)]
+
+    flash = stable([n for n in available if "flash" in n])
+    if flash:
+        return max(flash, key=lambda n: (_model_version(n), "lite" not in n))
+    gemini = stable([n for n in available if n.startswith("gemini")])
+    if gemini:
+        return max(gemini, key=_model_version)
+    return None
+
+
 def _quota_reason(response: httpx.Response) -> str:
     """Google's own explanation of which quota was exceeded, if it sent one."""
     try:
@@ -62,11 +88,31 @@ class GeminiClient:
         self._api_key = api_key
         self._model = model
         self._sleep = sleep
+        self._model_fallback_tried = False
         self._http = httpx.Client(
             base_url="https://generativelanguage.googleapis.com",
             timeout=120.0,
             transport=transport,
         )
+
+    def _list_available_models(self) -> list[str]:
+        """Model names this key can call with generateContent (best-effort)."""
+        try:
+            response = self._http.get(
+                "/v1beta/models",
+                params={"pageSize": 1000},
+                headers={"x-goog-api-key": self._api_key},
+            )
+            if response.status_code != 200:
+                return []
+            names = []
+            for model in response.json().get("models", []):
+                methods = model.get("supportedGenerationMethods", [])
+                if "generateContent" in methods:
+                    names.append(str(model.get("name", "")).removeprefix("models/"))
+            return [n for n in names if n]
+        except httpx.HTTPError:
+            return []
 
     def ocr_image(self, image_bytes: bytes, media_type: str) -> str:
         """Return the text Gemini reads from an image."""
@@ -112,6 +158,24 @@ class GeminiClient:
         if response.status_code == 429:
             raise AIProviderError(
                 _RATE_LIMIT_MESSAGE.format(reason=_quota_reason(response)))
+        if response.status_code == 404 and not self._model_fallback_tried:
+            # The configured model isn't available to this key (Google retires
+            # older model names for new accounts). Discover what IS available,
+            # switch to the best flash-style model, and retry once.
+            self._model_fallback_tried = True
+            available = self._list_available_models()
+            fallback = _pick_fallback_model(available)
+            if fallback and fallback != self._model:
+                print(f"Gemini model '{self._model}' unavailable for this key; "
+                      f"switching to '{fallback}'.")
+                self._model = fallback
+                return self._generate(contents, max_tokens, system)
+            shown = ", ".join(available[:8]) or "none found"
+            raise AIProviderError(
+                f"The Gemini model '{self._model}' isn't available to your key, "
+                f"and no automatic replacement was found. Models your key can "
+                f"use: {shown}. Set REVIEWER_GEMINI_MODEL in your .env to one "
+                f"of them.")
         if response.status_code in (400, 401, 403):
             raise AIProviderError(_KEY_REJECTED_MESSAGE)
         if response.status_code >= 400:
