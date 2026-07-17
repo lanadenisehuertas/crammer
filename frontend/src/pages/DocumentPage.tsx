@@ -345,6 +345,23 @@ export function DocumentPage() {
             </Card>
           );
         })}
+        {doc.text_chars < 300 && (
+          <Card className="p-6">
+            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-amber-200 text-amber-800">
+              <AlertTriangle size={18} />
+            </div>
+            <h3 className="mb-1 text-base font-bold text-ink">
+              Very little text could be read from this file
+            </h3>
+            <p className="text-sm text-muted">
+              Only {doc.text_chars} characters were extracted, so this deck is
+              built from almost nothing. This usually means the file is an
+              interactive/JavaScript page, a scan, or mostly images. Open the
+              file, copy its visible content, and use <b>Paste text</b> on the
+              Add page instead — then delete this document.
+            </p>
+          </Card>
+        )}
         {doc.modules.length === 0 && (
           <Card className="p-6">
             <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-amber-200 text-amber-800">

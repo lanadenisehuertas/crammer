@@ -13,6 +13,7 @@ export interface DocSummary {
   modules_finished: number;
   modules_total: number;
   mastery_pct: number;
+  text_chars: number;
 }
 
 export interface SectionOut {

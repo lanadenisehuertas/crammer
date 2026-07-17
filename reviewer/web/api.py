@@ -101,6 +101,7 @@ def _doc_summary(conn: sqlite3.Connection, doc, now: datetime, today: date) -> d
         "modules_finished": stats["modules_finished"],
         "modules_total": stats["modules_total"],
         "mastery_pct": _mastery_pct(stats["modules_finished"], stats["modules_total"]),
+        "text_chars": len(doc.extracted_text or ""),
         "_reviews_today": stats["reviews_today"],
     }
 
