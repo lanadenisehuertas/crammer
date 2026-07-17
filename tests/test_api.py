@@ -4,6 +4,7 @@ import anthropic
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from reviewer.ai.errors import AIProviderError
 from reviewer.db import connect
 from reviewer.web.app import create_app
 from reviewer import repository as repo
@@ -243,6 +244,7 @@ def test_paste_credit_error_502_keeps_document(tmp_path):
     assert r.status_code == 502
     detail = r.json()["detail"]
     assert "credit" in detail.lower()
+    assert "gemini" in detail.lower()  # tip to switch to the free provider
     # The document row survives with 0 modules so generation can be retried.
     conn = factory()
     docs = repo.list_documents(conn)
@@ -325,6 +327,18 @@ def test_generate_still_failing_502_and_retryable_again(tmp_path):
     assert r.status_code == 502
     assert "credit" in r.json()["detail"].lower()
     assert repo.list_modules(factory(), doc_id) == []
+
+
+def test_paste_ai_provider_error_502(tmp_path):
+    """A non-Anthropic provider's AIProviderError (e.g. from GeminiClient) must
+    also surface as a 502 with its own friendly detail, not an unhandled 500."""
+    exc = AIProviderError(
+        "Gemini's free-tier limit was hit. Wait a minute and try again "
+        "(free tier allows a limited number of requests per minute/day).")
+    client, factory = _make_ctx(tmp_path, FailingClient(exc))
+    r = _paste(client)
+    assert r.status_code == 502
+    assert "free-tier" in r.json()["detail"].lower()
 
 
 def test_generate_on_already_generated_doc_400(ctx):
