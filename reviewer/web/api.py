@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from reviewer import repository as repo
+from reviewer.ai.errors import AIProviderError
 from reviewer.generation import build_and_store
 from reviewer.generation.generator import generate_more_cards
 from reviewer.ingest import ingest_file, ingest_text
@@ -57,7 +58,8 @@ def _claude_api_http_error(e: anthropic.APIError) -> HTTPException:
             "Your Anthropic account is out of credits, so Crammer can't generate "
             "right now. Add credits at console.anthropic.com → Plans & Billing, "
             "then press Retry. (Tip: REVIEWER_MODEL=claude-haiku-4-5 in your .env "
-            "is the cheapest model.)"
+            "is the cheapest model.) Or switch to the free Gemini provider — see "
+            "the README."
         )
     elif isinstance(e, anthropic.AuthenticationError):
         detail = "Your API key was rejected. Check ANTHROPIC_API_KEY in your .env file."
@@ -68,6 +70,18 @@ def _claude_api_http_error(e: anthropic.APIError) -> HTTPException:
     else:
         detail = f"The Claude API returned an error: {message}"
     return HTTPException(502, detail)
+
+
+def _ai_http_error(e: Exception) -> HTTPException:
+    """Map any AI-provider error (Claude or Gemini) to a 502 for the frontend.
+
+    `AIProviderError` (raised by non-Anthropic clients such as GeminiClient)
+    already carries a student-friendly message, so it's used as-is; Anthropic
+    SDK errors go through the existing Claude-specific mapper.
+    """
+    if isinstance(e, AIProviderError):
+        return HTTPException(502, str(e))
+    return _claude_api_http_error(e)
 
 
 def _mastery_pct(finished: int, total: int) -> int:
@@ -167,8 +181,8 @@ def build_api_router(get_conn, client) -> APIRouter:
         try:
             build_and_store(conn, client, doc.id, doc.extracted_text,
                             flashcard_pairs=parsed.flashcard_pairs)
-        except anthropic.APIError as e:
-            raise _claude_api_http_error(e)
+        except (anthropic.APIError, AIProviderError) as e:
+            raise _ai_http_error(e)
         return {"document_id": doc.id}
 
     @router.post("/upload")
@@ -181,15 +195,15 @@ def build_api_router(get_conn, client) -> APIRouter:
             raise HTTPException(400, str(e))
         except EmptyContentError as e:
             raise HTTPException(400, str(e))
-        except anthropic.APIError as e:  # OCR of an image can hit the API too
-            raise _claude_api_http_error(e)
+        except (anthropic.APIError, AIProviderError) as e:  # OCR can hit the API too
+            raise _ai_http_error(e)
         # The document row already exists at this point (intentionally): if
         # generation fails the extracted text is safe and can be retried later.
         try:
             build_and_store(conn, client, doc.id, doc.extracted_text,
                             flashcard_pairs=parsed.flashcard_pairs)
-        except anthropic.APIError as e:
-            raise _claude_api_http_error(e)
+        except (anthropic.APIError, AIProviderError) as e:
+            raise _ai_http_error(e)
         return {"document_id": doc.id}
 
     @router.post("/documents/{doc_id}/generate")
@@ -201,8 +215,8 @@ def build_api_router(get_conn, client) -> APIRouter:
             raise HTTPException(400, "This document already has a generated reviewer.")
         try:
             build_and_store(conn, client, doc_id, doc.extracted_text)
-        except anthropic.APIError as e:
-            raise _claude_api_http_error(e)
+        except (anthropic.APIError, AIProviderError) as e:
+            raise _ai_http_error(e)
         return {"ok": True}
 
     @router.delete("/documents/{doc_id}")
@@ -303,8 +317,8 @@ def build_api_router(get_conn, client) -> APIRouter:
         existing_questions = [c.question for c in repo.list_cards_for_module(conn, module_id)]
         try:
             new_cards = generate_more_cards(client, sections_text, existing_questions)
-        except anthropic.APIError as e:
-            raise _claude_api_http_error(e)
+        except (anthropic.APIError, AIProviderError) as e:
+            raise _ai_http_error(e)
         now = datetime.now().isoformat(timespec="seconds")
         added = 0
         for gc in new_cards:

@@ -3,13 +3,18 @@
 Turn your study materials (PDF, DOCX, PPTX, images, spreadsheets, and more)
 into structured reviewers, flashcards, and quizzes — with short-term spaced
 repetition built for studying over 1–2 days. Runs on your own computer;
-only the AI calls go to the Claude API.
+only the AI calls go to Claude or Gemini, whichever you configure.
 
 ## Quick start (Windows)
 
-1. Copy `.env.example` to `.env` and put your Anthropic API key after
-   `ANTHROPIC_API_KEY=`. (`REVIEWER_MODEL` picks the model —
-   `claude-haiku-4-5` is the cheapest.)
+1. Copy `.env.example` to `.env` and add an AI key.
+   - No budget? Get a free Gemini key at aistudio.google.com and set
+     `GEMINI_API_KEY` instead. (`REVIEWER_GEMINI_MODEL` picks the model —
+     `gemini-2.5-flash` is the default and free-tier friendly.)
+   - Have Anthropic credits? Put your key after `ANTHROPIC_API_KEY=`.
+     (`REVIEWER_MODEL` picks the model — `claude-haiku-4-5` is the cheapest.)
+   - Crammer auto-detects which provider to use from whichever key is set;
+     set `REVIEWER_PROVIDER=claude` or `gemini` to force one.
 2. **Double-click `start.bat`.** The first run sets everything up, then your
    browser opens Crammer automatically.
 

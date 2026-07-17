@@ -2,11 +2,7 @@ import base64
 
 import anthropic
 
-_OCR_INSTRUCTION = (
-    "Transcribe all text visible in this image exactly as written, preserving "
-    "reading order. If the image contains a diagram or chart, briefly describe it "
-    "in square brackets. Output only the transcription, with no preamble."
-)
+from reviewer.ai.prompts import OCR_INSTRUCTION
 
 
 def _text_from(message) -> str:
@@ -33,7 +29,7 @@ class ClaudeClient:
                 "content": [
                     {"type": "image", "source": {
                         "type": "base64", "media_type": media_type, "data": data}},
-                    {"type": "text", "text": _OCR_INSTRUCTION},
+                    {"type": "text", "text": OCR_INSTRUCTION},
                 ],
             }],
         )
